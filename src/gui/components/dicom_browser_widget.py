@@ -32,7 +32,8 @@ class DicomBrowserWidget(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(0, 40, 0, 0)
+        
         layout.setSpacing(8)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -96,13 +97,14 @@ class DicomBrowserWidget(QWidget):
         splitter.addWidget(grp_series)
         layout.addWidget(splitter)
 
-        self.btn_load = QPushButton("📥 Load Selected Series")
+        self.btn_load = QPushButton("Load Selected Series")
+        self.btn_load.setObjectName('loadBtn')
         self.btn_load.setEnabled(False)
         self.btn_load.setToolTip("Load the highlighted series into the viewer")
         self.progress = QProgressBar()
         self.progress.setVisible(False)
 
-        layout.addWidget(self.btn_load)
+        layout.addWidget(self.btn_load, alignment=Qt.AlignCenter)
         layout.addWidget(self.progress)
 
         self.tbl_patients.itemSelectionChanged.connect(self._on_patient_selected)

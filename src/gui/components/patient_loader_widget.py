@@ -1,7 +1,7 @@
 import os
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QFileDialog, QProgressBar, QMessageBox)
-from PyQt5.QtCore import pyqtSignal, QThread
+from PyQt5.QtCore import Qt, pyqtSignal, QThread
 from src.modules.patient_loader.loader import PatientLoader
 from src.gui.components.dicom_browser_widget import DicomBrowserWidget
 from src.core.patient_data import PatientData
@@ -39,12 +39,16 @@ class PatientLoaderWidget(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(10, 50, 10, 0)
         layout.setSpacing(10)
 
         btn_layout = QHBoxLayout()
-        self.btn_scan = QPushButton("📂 Scan DICOM Directory")
-        self.btn_nifti = QPushButton("🧠 Load NIfTI File")
+        btn_layout.setSpacing(20)
+        btn_layout.setContentsMargins(50, 0, 50, 0)
+        self.btn_scan = QPushButton("Load DICOM")
+        self.btn_scan.setObjectName('dicomBtn')
+        self.btn_nifti = QPushButton("Load NIfTI")
+        self.btn_nifti.setObjectName('niftiBtn')
         self.btn_scan.setToolTip("Recursively scan a folder for DICOM series")
         self.btn_nifti.setToolTip("Load a preprocessed .nii or .nii.gz volume")
         btn_layout.addWidget(self.btn_scan)
@@ -57,7 +61,7 @@ class PatientLoaderWidget(QWidget):
         self.lbl_status.setStyleSheet("color: #a6adc8; font-style: italic;")
         self.progress = QProgressBar()
         self.progress.setVisible(False)
-        layout.addWidget(self.lbl_status)
+        layout.addWidget(self.lbl_status, alignment=Qt.AlignCenter)
         layout.addWidget(self.progress)
 
         self.btn_scan.clicked.connect(self._scan_dicom)
