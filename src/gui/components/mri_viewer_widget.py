@@ -396,15 +396,22 @@ class MRIViewerWidget(QWidget):
         if vol.ndim != 3: return
 
         z, y, x = self.current_volume.get_shape()
+        
+        # Keep indices in bounds
         self.slice_idx['axial'] = max(0, min(self.slice_idx['axial'], z-1))
         self.slice_idx['coronal'] = max(0, min(self.slice_idx['coronal'], y-1))
         self.slice_idx['sagittal'] = max(0, min(self.slice_idx['sagittal'], x-1))
         
         zi, yi, xi = self.slice_idx['axial'], self.slice_idx['coronal'], self.slice_idx['sagittal']
 
-        ax_slice = np.flip(vol[zi, :, :], axis=1).astype(np.float32)
-        cor_slice = np.flip(vol[:, yi, :], axis=1).astype(np.float32)
-        sag_slice = np.flip(vol[:, :, xi], axis=1).astype(np.float32)
+        # ✅ Axial: flip vertically to show eyes/anterior at top
+        ax_slice = np.flipud(vol[zi, :, :])
+        
+        # ✅ Coronal: normal orientation
+        cor_slice = vol[:, yi, :]
+        
+        # ✅ Sagittal: normal orientation  
+        sag_slice = vol[:, :, xi]
 
         self.img_axial.setImage(ax_slice, autoLevels=False)
         self.img_coronal.setImage(cor_slice, autoLevels=False)
@@ -418,12 +425,17 @@ class MRIViewerWidget(QWidget):
         z, y, x = self.current_volume.get_shape()
         self._updating_crosshairs = True
         
-        self.crosshairs['axial']['h'].setPos(self.slice_idx['coronal'])
-        self.crosshairs['axial']['v'].setPos(x - 1 - self.slice_idx['sagittal'])
+        # Axial view crosshairs
+        self.crosshairs['axial']['h'].setPos(y - 1 - self.slice_idx['coronal'])  # Flip for flipped image
+        self.crosshairs['axial']['v'].setPos(self.slice_idx['sagittal'])
+        
+        # Coronal view crosshairs
         self.crosshairs['coronal']['h'].setPos(self.slice_idx['axial'])
-        self.crosshairs['coronal']['v'].setPos(x - 1 - self.slice_idx['sagittal'])
+        self.crosshairs['coronal']['v'].setPos(self.slice_idx['sagittal'])
+        
+        # Sagittal view crosshairs
         self.crosshairs['sagittal']['h'].setPos(self.slice_idx['axial'])
-        self.crosshairs['sagittal']['v'].setPos(y - 1 - self.slice_idx['coronal'])
+        self.crosshairs['sagittal']['v'].setPos(self.slice_idx['coronal'])  # ✅ No flip!
         
         self._updating_crosshairs = False
 
@@ -434,22 +446,24 @@ class MRIViewerWidget(QWidget):
 
         if view == 'axial':
             if axis == 'h':
-                self.slice_idx['coronal'] = max(0, min(y-1, pos))
+                # Flip back because axial image is flipped
+                self.slice_idx['coronal'] = max(0, min(y-1, y - 1 - pos))
             else:
-                self.slice_idx['sagittal'] = max(0, min(x-1, x - 1 - pos))
+                self.slice_idx['sagittal'] = max(0, min(x-1, pos))
         elif view == 'coronal':
             if axis == 'h':
                 self.slice_idx['axial'] = max(0, min(z-1, pos))
             else:
-                self.slice_idx['sagittal'] = max(0, min(x-1, x - 1 - pos))
+                self.slice_idx['sagittal'] = max(0, min(x-1, pos))
         elif view == 'sagittal':
             if axis == 'h':
                 self.slice_idx['axial'] = max(0, min(z-1, pos))
             else:
-                self.slice_idx['coronal'] = max(0, min(y-1, y - 1 - pos))
+                # ✅ No flip needed
+                self.slice_idx['coronal'] = max(0, min(y-1, pos))
 
         self._render_mpr()
-        self._update_slice_labels()  # ✅ Update counter when crosshair moves!
+        self._update_slice_labels()
 
     def _step_slice(self, view_key, step):
         if self.current_volume is None: return
