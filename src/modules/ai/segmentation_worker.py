@@ -10,6 +10,8 @@ import shutil
 from PyQt5.QtCore import QThread, pyqtSignal
 from ultralytics import YOLO
 from src.ai.models.unet import UNet
+import sys
+import os
 
 class SegmentationWorker(QThread):
     progress = pyqtSignal(str)
@@ -26,10 +28,19 @@ class SegmentationWorker(QThread):
         self.patient_name = str(self.patient_name).replace(" ", "_").replace("/", "_")
         
         self.crop_size = 224
-        
-        # Paths
-        self.weights_path = "/home/billal/pfe/DBS_CHUB/src/ai/weights/2DUnet.pth"
-        self.yolo_path = "/home/billal/pfe/DBS_CHUB/src/ai/weights/Yolo11n.pt"
+
+
+        def get_asset_path(relative_path):
+            """ Get absolute path to resource, works for dev and for PyInstaller """
+            if hasattr(sys, '_MEIPASS'):
+                return os.path.join(sys._MEIPASS, relative_path)
+            return os.path.abspath(relative_path)
+
+        # 🚀 Use it like this:
+        self.weights_path = get_asset_path("src/ai/weights/2DUnet.pth")
+        self.yolo_path = get_asset_path("src/ai/weights/Yolo11n.pt")
+                
+       
         self.hd_bet_cache = os.path.join(os.getcwd(), "hd_bet_weights")
         os.makedirs(self.hd_bet_cache, exist_ok=True)
         os.environ["HD_BET_CHECKPOINT_DIR"] = self.hd_bet_cache
