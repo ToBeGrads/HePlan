@@ -11,7 +11,6 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from ultralytics import YOLO
 from src.ai.models.unet import UNet
 import sys
-import os
 
 class SegmentationWorker(QThread):
     progress = pyqtSignal(str)
@@ -23,12 +22,36 @@ class SegmentationWorker(QThread):
         self.patient_data = patient_data
         self.vol_name = vol_name.replace(" ", "_").replace("/", "_")
         
-        self.patient_name = getattr(patient_data, 'patient_name', 
-                            getattr(patient_data, 'patient_id', 'Unknown_Patient'))
-        self.patient_name = str(self.patient_name).replace(" ", "_").replace("/", "_")
+        # ─── FIX: ROBUST PATIENT NAME & ID EXTRACTOR ─────────────────────────
+        p_name = getattr(patient_data, 'patient_name', None) or getattr(patient_data, 'patient_id', None)
+        
+        # Fallback 1: Extract patient name from the underlying source file path
+        if not p_name or str(p_name).strip() in ["", "Unknown_Patient", "None"]:
+            orig_path = getattr(patient_data, 'file_path', '')
+            if orig_path:
+                norm_path = os.path.normpath(orig_path)
+                current_dir = os.path.dirname(norm_path)
+                # Traverse up away from generic scan subfolders (e.g., 'DICOM')
+                for _ in range(3):
+                    if os.path.basename(current_dir).lower() in ['dicom', 'scans', 'temp_slices', '']:
+                        current_dir = os.path.dirname(current_dir)
+                
+                folder_name = os.path.basename(current_dir)
+                if folder_name and folder_name.lower() not in ['documents', 'home', 'billal', 'pfe', 'data', '']:
+                    p_name = folder_name
+                    
+        # Fallback 2: Extract numeric ID prefix from volume name (e.g., "87963")
+        if not p_name or str(p_name).strip() in ["", "Unknown_Patient", "None"]:
+            parts = vol_name.split('_')
+            if parts and parts[0].isdigit():
+                p_name = parts[0]
+            else:
+                p_name = "Patient"
+                
+        self.patient_name = str(p_name).replace(" ", "_").replace("/", "_")
+        # ─────────────────────────────────────────────────────────────────────
         
         self.crop_size = 224
-
 
         def get_asset_path(relative_path):
             """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -36,25 +59,39 @@ class SegmentationWorker(QThread):
                 return os.path.join(sys._MEIPASS, relative_path)
             return os.path.abspath(relative_path)
 
-        # 🚀 Use it like this:
         self.weights_path = get_asset_path("src/ai/weights/2DUnet.pth")
         self.yolo_path = get_asset_path("src/ai/weights/Yolo11n.pt")
                 
-       
         self.hd_bet_cache = os.path.join(os.getcwd(), "hd_bet_weights")
         os.makedirs(self.hd_bet_cache, exist_ok=True)
         os.environ["HD_BET_CHECKPOINT_DIR"] = self.hd_bet_cache
 
     def run(self):
         try:
-            # --- Setup Output Directories ---
+            # --- Define Base Paths First ---
             base_out_dir = os.path.join(os.getcwd(), "data", "segmentation", self.patient_name, self.vol_name)
-            
+            dir_final = os.path.join(base_out_dir, "5_final_3d")
+            final_nii_path = os.path.join(dir_final, "final_segmentation.nii.gz")
+
+            # ─── OPTIMIZATION: DIRECT CACHE LOAD ──────────────────────────────
+            if os.path.exists(final_nii_path):
+                self.progress.emit("Existing segmentation found on disk. Loading cached mask...")
+                try:
+                    loaded_nii = nib.load(final_nii_path)
+                    mask_3d = loaded_nii.get_fdata().astype(np.uint8)
+                    
+                    self.progress.emit("Complete (Loaded from cache)!")
+                    self.finished.emit(mask_3d)
+                    return  # 🚀 Exit early, skipping everything else!
+                except Exception as cache_err:
+                    # If the file is corrupted or unreadable, log it and let the pipeline recreate it
+                    self.progress.emit(f"Cached file unreadable ({str(cache_err)}). Re-running pipeline...")
+
+            # ─── CONTINUE REGULAR PIPELINE IF NOT FOUND ────────────────────────
             dir_skull = os.path.join(base_out_dir, "1_skull_stripped")
             dir_norm = os.path.join(base_out_dir, "2_normalized")
             dir_yolo = os.path.join(base_out_dir, "3_yolo_result")
             dir_unet = os.path.join(base_out_dir, "4_unet_result")
-            dir_final = os.path.join(base_out_dir, "5_final_3d")
             img_dir = os.path.join(base_out_dir, "temp_slices") 
 
             for d in [dir_skull, dir_norm, dir_yolo, dir_unet, dir_final, img_dir]:
@@ -114,7 +151,6 @@ class SegmentationWorker(QThread):
             mask_3d = self._reconstruct_3d(dir_unet, preproc_path)
 
             # Save final 3D result
-            final_nii_path = os.path.join(dir_final, "final_segmentation.nii.gz")
             nib.save(nib.Nifti1Image(mask_3d, self.patient_data.affine), final_nii_path)
 
             # Clean up temporary PNG slices
@@ -210,21 +246,59 @@ class SegmentationWorker(QThread):
             
             results = yolo_model(img_ary_rotated, verbose=False, device=device)
             
+            # ─── FIX: CONFIDENCE EVALUATION (> 50%) ─────────────────────────
+            valid_boxes = []
             if len(results[0].boxes) > 0:
+                for box in results[0].boxes:
+                    conf = float(box.conf[0].cpu().item())
+                    if conf >= 0.50:  # Only accept boxes with confidence > 50%
+                        valid_boxes.append(box)
+            
+            # Only process slice if it has at least one box meeting the threshold
+            if len(valid_boxes) > 0:
                 yolo_detected_slices.append(z)
                 
-                # Get the plot image (which is currently sideways and in BGR format)
-                res_img_array = results[0].plot()
+                # --- DRAW HORIZONTAL LABELS DIRECTLY ON UPRIGHT IMAGE ---
+                from PIL import ImageDraw
+                draw = ImageDraw.Draw(img)
+                names_map = yolo_model.names
+                N = self.crop_size  # 224
                 
-                # Rotate 90 CW to bring the plot back to upright position
-                res_img_upright = np.rot90(res_img_array, k=-1)
+                for box in valid_boxes:
+                    # Get coordinates from the rotated prediction
+                    xyxy = box.xyxy[0].cpu().numpy()
+                    x1_r, y1_r, x2_r, y2_r = xyxy
+                    
+                    # Translate rotated box coordinates back to the upright frame
+                    x1_u = N - 1 - y2_r
+                    x2_u = N - 1 - y1_r
+                    y1_u = x1_r
+                    y2_u = x2_r
+                    
+                    # Extract class ID and confidence score
+                    cls_id = int(box.cls[0].cpu().item())
+                    conf = float(box.conf[0].cpu().item())
+                    class_name = names_map.get(cls_id, "Target")
+                    label = f"{class_name} {conf:.2f}"
+                    
+                    # Clinical styling color (Vibrant blue: #89b4fa)
+                    box_color = (137, 180, 250)
+                    
+                    # 1. Draw perfectly upright bounding box outline
+                    draw.rectangle([x1_u, y1_u, x2_u, y2_u], outline=box_color, width=2)
+                    
+                    # 2. Draw a neat horizontal background flag for text readability
+                    text_w = len(label) * 7
+                    text_h = 13
+                    header_y1 = max(0, int(y1_u) - text_h)
+                    draw.rectangle([int(x1_u), header_y1, int(x1_u) + text_w, header_y1 + text_h], fill=box_color)
+                    
+                    # 3. Write label text horizontally inside the flag
+                    draw.text((int(x1_u) + 3, header_y1), label, fill=(30, 30, 46))
                 
-                # Convert BGR (OpenCV) to RGB (PIL) to prevent colors from swapping
-                res_img_upright = res_img_upright[..., ::-1]
+                # Save clean, upright image with legible horizontal annotations
+                img.save(os.path.join(yolo_out_dir, f"yolo_z{z:02d}.png"))
                 
-                # Save upright plot natively
-                Image.fromarray(res_img_upright).save(os.path.join(yolo_out_dir, f"yolo_z{z:02d}.png"))
-
         # Step 4b: Contiguity filtering and single-slice gap filling
         if not yolo_detected_slices:
             free_gpu_memory()
@@ -242,13 +316,13 @@ class SegmentationWorker(QThread):
             if next_s - curr_s == 2:
                 gap_slice = curr_s + 1
                 validated_slices.add(gap_slice)
-                # Copy an arbitrary adjacent plot prediction for visual consistency in the folder
+                # Copy an adjacent plot prediction for visual consistency
                 src_yolo = os.path.join(yolo_out_dir, f"yolo_z{curr_s:02d}.png")
                 dst_yolo = os.path.join(yolo_out_dir, f"yolo_z{gap_slice:02d}.png")
                 if os.path.exists(src_yolo):
                     shutil.copy(src_yolo, dst_yolo)
 
-        # Remove single isolated noise slices (only keep if it has a neighbor within a distance of 1)
+        # Remove single isolated noise slices
         final_slices = []
         for s in sorted(list(validated_slices)):
             has_left_neighbor = (s - 1) in validated_slices
@@ -256,7 +330,6 @@ class SegmentationWorker(QThread):
             if has_left_neighbor or has_right_neighbor:
                 final_slices.append(s)
             else:
-                # Remove isolated noise plots from folder
                 bad_yolo_img = os.path.join(yolo_out_dir, f"yolo_z{s:02d}.png")
                 if os.path.exists(bad_yolo_img):
                     os.remove(bad_yolo_img)
