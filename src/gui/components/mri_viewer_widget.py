@@ -254,6 +254,7 @@ class MRIViewerWidget(QWidget):
         self.view_axial.addItem(self.mask_axial)
         self.view_coronal.addItem(self.mask_coronal)
         self.view_sagittal.addItem(self.mask_sagittal)
+
         
         self._apply_lut_table()
 
@@ -495,9 +496,15 @@ class MRIViewerWidget(QWidget):
         cor_slice = vol[:, yi, :]
         sag_slice = vol[:, :, xi]
 
-        self.img_axial.setImage(ax_slice, autoLevels=False)
-        self.img_coronal.setImage(cor_slice, autoLevels=False)
-        self.img_sagittal.setImage(sag_slice, autoLevels=False)
+        # === FIX: Calculate window/level limits BEFORE setting the images ===
+        w = self.sld_window.value()
+        l = self.sld_level.value()
+        vmin, vmax = l - w/2, l + w/2
+
+        # Pass levels directly into setImage to prevent them from ever becoming None
+        self.img_axial.setImage(ax_slice, autoLevels=False, levels=(vmin, vmax))
+        self.img_coronal.setImage(cor_slice, autoLevels=False, levels=(vmin, vmax))
+        self.img_sagittal.setImage(sag_slice, autoLevels=False, levels=(vmin, vmax))
 
         if self.current_vol_name in self.masks and self.btn_toggle_mask.isChecked():
             mask_vol = self.masks[self.current_vol_name]

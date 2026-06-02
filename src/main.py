@@ -6,6 +6,7 @@ from PyQt5.QtGui import QFont
 from src.core.patient_data import PatientData
 from src.gui.components.patient_loader_widget import PatientLoaderWidget
 from src.gui.components.mri_viewer_widget import MRIViewerWidget
+from src.gui.components.registration_widget import RegistrationWidget
 
 
 # ⚠️ MUST be called BEFORE QApplication
@@ -51,8 +52,8 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.viewer_tab, "MRI Viewer")
 
         # Tab 3: Registration
-        #self.registration_tab = RegistrationWidget()
-        #self.tabs.addTab(self.registration_tab, "3. Registration")
+        self.registration_tab = RegistrationWidget()
+        self.tabs.addTab(self.registration_tab, "Registration")    #self.tabs.addTab(self.registration_tab, "3. Registration")
 
         # Status bar
         self.status_bar = QStatusBar()
@@ -63,7 +64,7 @@ class MainWindow(QMainWindow):
         self.loader_tab.data_loaded.connect(self.on_patient_loaded)
         
         # Connect Loader -> Registration (accumulate volumes)
-        #self.loader_tab.data_loaded.connect(self._add_to_registration)
+        self.loader_tab.data_loaded.connect(self._add_to_registration)
         
         # Connect status messages
         self.loader_tab.status_message.connect(self.status_bar.showMessage)
