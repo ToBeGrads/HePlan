@@ -17,10 +17,11 @@ class SegmentationWorker(QThread):
     finished = pyqtSignal(object)  # Returns the 3D numpy array mask
     error = pyqtSignal(str)
 
-    def __init__(self, patient_data, vol_name="Unknown_Volume"):
+    def __init__(self, patient_data, vol_name="Unknown_Volume", cache_dir=None):
         super().__init__()
         self.patient_data = patient_data
         self.vol_name = vol_name.replace(" ", "_").replace("/", "_")
+        self.cache_dir = cache_dir
         
         # ─── FIX: ROBUST PATIENT NAME & ID EXTRACTOR ─────────────────────────
         p_name = getattr(patient_data, 'patient_name', None) or getattr(patient_data, 'patient_id', None)
@@ -69,7 +70,11 @@ class SegmentationWorker(QThread):
     def run(self):
         try:
             # --- Define Base Paths First ---
-            base_out_dir = os.path.join(os.getcwd(), "data", "segmentation", self.patient_name, self.vol_name)
+            if self.cache_dir:
+                base_out_dir = os.path.join(self.cache_dir, "pipeline", self.vol_name)
+            else:
+                base_out_dir = os.path.join(os.getcwd(), "data", "segmentation", self.patient_name, self.vol_name)
+                
             dir_final = os.path.join(base_out_dir, "5_final_3d")
             final_nii_path = os.path.join(dir_final, "final_segmentation.nii.gz")
 

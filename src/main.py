@@ -69,6 +69,9 @@ class MainWindow(QMainWindow):
         # Connect status messages
         self.loader_tab.status_message.connect(self.status_bar.showMessage)
 
+        # Connect Viewer -> Registration (pass segmentation masks)
+        self.viewer_tab.masks_updated.connect(self.registration_tab.load_masks)
+
     def _add_to_registration(self, patient_data: PatientData):
         """Add volume to registration widget's dict and refresh UI."""
         pid = patient_data.metadata.get("PatientID", "Unknown")

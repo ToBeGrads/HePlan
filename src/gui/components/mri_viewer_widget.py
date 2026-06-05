@@ -2,8 +2,9 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtWidgets import (QWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QSlider, QLabel, 
                              QGroupBox, QTableWidget, QTableWidgetItem, QAbstractItemView, \
-                             QHeaderView, QPushButton, QSizePolicy, QComboBox, QScrollArea, QFrame)
-from PyQt5.QtCore import Qt
+                             QHeaderView, QPushButton, QSizePolicy, QComboBox, QScrollArea, QFrame, QProgressBar)
+import os
+from PyQt5.QtCore import Qt, pyqtSignal
 from src.core.patient_data import PatientData
 
 pg.setConfigOption('background', '#181825')
@@ -11,6 +12,8 @@ pg.setConfigOption('foreground', '#cdd6f4')
 pg.setConfigOption('imageAxisOrder', 'row-major')
 
 class MRIViewerWidget(QWidget):
+    masks_updated = pyqtSignal(dict)
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.volumes = {}
@@ -133,8 +136,10 @@ class MRIViewerWidget(QWidget):
 
         # Volumes Group
         grp_volumes = QGroupBox("📁 Loaded Volumes")
+        grp_volumes.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
         vol_layout = QVBoxLayout(grp_volumes)
-        vol_layout.setContentsMargins(8, 8, 8, 8)
+        vol_layout.setContentsMargins(10, 10, 10, 10)
+        vol_layout.setAlignment(Qt.AlignTop)
         
         self.tbl_volumes = QTableWidget()
         self.tbl_volumes.setColumnCount(4)
@@ -145,15 +150,27 @@ class MRIViewerWidget(QWidget):
         self.tbl_volumes.setShowGrid(True)
         self.tbl_volumes.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_volumes.verticalHeader().setVisible(False)
+        self.tbl_volumes.setStyleSheet("QTableWidget { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; } QHeaderView::section { background-color: #313244; color: #a6adc8; font-weight: bold; border: none; padding: 4px; }")
         vol_layout.addWidget(self.tbl_volumes)
+        
+        # Standalone Segmentation Button
+        self.btn_run_seg = QPushButton("▶ Run AI Segmentation")
+        self.btn_run_seg.setStyleSheet("QPushButton { background-color: #89b4fa; color: #11111b; font-weight: bold; font-size: 13px; padding: 8px; border-radius: 6px; margin-top: 5px; } QPushButton:disabled { background-color: #45475a; color: #a6adc8; }")
+        self.btn_run_seg.setEnabled(False)
+        self.btn_run_seg.clicked.connect(self._on_segmentation_clicked)
+        vol_layout.addWidget(self.btn_run_seg)
+        vol_layout.addStretch()
+        
         scroll_layout.addWidget(grp_volumes)
 
         # Window/Level Group
-        grp_wl = QGroupBox("Window / Level")
-        grp_wl.setStyleSheet('max-height: 200px;')
+        grp_wl = QGroupBox("🎚 Window / Level")
+        grp_wl.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
+        grp_wl.setStyleSheet('max-height: 220px;')
         wl_layout = QVBoxLayout(grp_wl)
-        wl_layout.setContentsMargins(4, 4, 4, 4)
-        wl_layout.setSpacing(4)
+        wl_layout.setContentsMargins(10, 10, 10, 10)
+        wl_layout.setSpacing(6)
+        wl_layout.setAlignment(Qt.AlignTop)
         
         self.lbl_wl = QLabel("W: 0  |  L: 0")
         self.lbl_wl.setStyleSheet("color: black; font-size: 11px; background-color: white; padding: 2px; border-radius: 4px; max-height: 20px;")
@@ -180,26 +197,41 @@ class MRIViewerWidget(QWidget):
         
         self.btn_reset_wl = QPushButton("🔄 Reset to Auto")
         wl_layout.addWidget(self.btn_reset_wl)
+        wl_layout.addStretch()
         scroll_layout.addWidget(grp_wl)
 
         # --- PROGRESS INDICATOR (Waiting Mechanism Overlay) ---
-        self.grp_progress = QGroupBox("⏳ Pipeline Execution Status")
+        # --- PROGRESS INDICATOR (Waiting Mechanism Overlay) ---
+        self.grp_progress = QGroupBox("⏳ AI Pipeline Execution")
+        self.grp_progress.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #f9e2af; border: 1px solid #f9e2af; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
         self.grp_progress.setVisible(False)
         prog_layout = QVBoxLayout(self.grp_progress)
+        prog_layout.setContentsMargins(10, 10, 10, 10)
+        prog_layout.setAlignment(Qt.AlignTop)
+        
         self.lbl_progress_status = QLabel("Initializing pipeline updates...")
-        self.lbl_progress_status.setStyleSheet("color: #f9e2af; font-weight: bold; font-size: 11px;")
+        self.lbl_progress_status.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 11px;")
         self.lbl_progress_status.setWordWrap(True)
         prog_layout.addWidget(self.lbl_progress_status)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0) # Indeterminate
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("QProgressBar { border: 1px solid #45475a; border-radius: 3px; background-color: #1e1e2e; height: 10px; } QProgressBar::chunk { background-color: #a6e3a1; border-radius: 3px; }")
+        prog_layout.addWidget(self.progress_bar)
+        
         scroll_layout.addWidget(self.grp_progress)
 
-# --- NEW: COMPACT SEGMENTATION CONTROL TOOLBOX ---
+        # --- NEW: COMPACT SEGMENTATION CONTROL TOOLBOX ---
         self.grp_seg_toolbox = QGroupBox("🧠 Segmentation Overlay")
+        self.grp_seg_toolbox.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
         self.grp_seg_toolbox.setVisible(False) # Hidden until mask finishes processing
         self.grp_seg_toolbox.setMaximumHeight(80) # Restrict height to save space
         
         box_layout = QVBoxLayout(self.grp_seg_toolbox)
-        box_layout.setContentsMargins(8, 12, 8, 8)
+        box_layout.setContentsMargins(8, 10, 8, 8)
         box_layout.setSpacing(0)
+        box_layout.setAlignment(Qt.AlignTop)
         
         # Horizontal layout to pack controls side-by-side
         controls_layout = QHBoxLayout()
@@ -231,6 +263,7 @@ class MRIViewerWidget(QWidget):
         controls_layout.addWidget(self.sld_opacity)
         
         box_layout.addLayout(controls_layout)
+        box_layout.addStretch()
         scroll_layout.addWidget(self.grp_seg_toolbox)
         scroll_layout.addStretch()
 
@@ -303,22 +336,50 @@ class MRIViewerWidget(QWidget):
         self._render_mpr()
 
     def _run_segmentation(self, vol_name: str):
-        self.grp_progress.setVisible(True)
-        self.lbl_progress_status.setText("Initializing compute worker...")
-        
         patient_data = self.volumes[vol_name]
-        from src.modules.ai.segmentation_worker import SegmentationWorker
-        self.worker = SegmentationWorker(patient_data, vol_name)
         
-        # Connect real-time progress update messages
-        self.worker.progress.connect(self._handle_pipeline_progress)
+        # Determine cache path (Patient Folder level)
+        import os
+        import numpy as np
         
-        def on_error(err_msg):
-            self.lbl_progress_status.setText(f"Error encountered: {err_msg}")
+        clean_path = os.path.normpath(patient_data.file_path)
+        pname = patient_data.metadata.get("patient_name", "").strip()
+        patient_folder = None
+        
+        if pname and pname.lower() in clean_path.lower():
+            # Safely cut path exactly after the patient's name folder (case-insensitive)
+            idx = clean_path.lower().find(pname.lower()) + len(pname)
+            patient_folder = clean_path[:idx]
             
+        if not patient_folder:
+            # Fallback heuristic: step up past generic DICOM/Series folders
+            curr = clean_path if os.path.isdir(clean_path) else os.path.dirname(clean_path)
+            generic_terms = ['dicom', 'mri', 'ct', 't1', 't2', 'series', 'study', 'ax', 'cor', 'sag']
+            
+            # Step up as long as the folder name looks like a generic sub-folder
+            while curr != os.path.dirname(curr):
+                if any(term in os.path.basename(curr).lower() for term in generic_terms):
+                    curr = os.path.dirname(curr)
+                else:
+                    break
+            patient_folder = curr
+            
+        cache_dir = os.path.join(patient_folder, "dbs_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_path = os.path.join(cache_dir, "segmentation_mask.npy")
+        
         def on_finished(mask_3d):
+            # Save to cache if we ran the worker
+            if not os.path.exists(cache_path):
+                np.save(cache_path, mask_3d)
+                
             self.grp_progress.setVisible(False)
             self.masks[vol_name] = mask_3d
+            self.masks_updated.emit(self.masks)
+            
+            # Fallback for older direct reference (safe to keep or remove, but signal is better)
+            if hasattr(self.parent(), 'registration_widget'):
+                self.parent().registration_widget.load_masks(self.masks)
             
             # Show the control toolbox panel once completed successfully
             self.grp_seg_toolbox.setVisible(True)
@@ -327,7 +388,35 @@ class MRIViewerWidget(QWidget):
             
             if self.current_vol_name == vol_name:
                 self._render_mpr()
+
+        def on_error(err_msg):
+            self.lbl_progress_status.setText(f"Error encountered: {err_msg}")
+        
+        # Check cache
+        if os.path.exists(cache_path):
+            self.lbl_progress_status.setText("Found cached segmentation! Loading instantly...")
+            self.grp_progress.setVisible(True)
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(100)
+            
+            # Use QTimer to briefly show progress before finishing
+            import PyQt5.QtCore as QtCore
+            def finish_cache_load():
+                mask_3d = np.load(cache_path)
+                on_finished(mask_3d)
                 
+            QtCore.QTimer.singleShot(500, finish_cache_load)
+            return
+
+        self.grp_progress.setVisible(True)
+        self.progress_bar.setRange(0, 0) # Indeterminate for worker
+        self.lbl_progress_status.setText("Initializing compute worker...")
+        
+        from src.modules.ai.segmentation_worker import SegmentationWorker
+        self.worker = SegmentationWorker(patient_data, vol_name, cache_dir=cache_dir)
+        
+        # Connect real-time progress update messages
+        self.worker.progress.connect(self._handle_pipeline_progress)
         self.worker.error.connect(on_error)
         self.worker.finished.connect(on_finished)
         self.worker.start()
@@ -385,17 +474,21 @@ class MRIViewerWidget(QWidget):
         self.tbl_volumes.setItem(row, 0, QTableWidgetItem(vol_name))
         self.tbl_volumes.setItem(row, 1, QTableWidgetItem(patient_data.modality))
         self.tbl_volumes.setItem(row, 2, QTableWidgetItem(str(patient_data.get_shape())))
-
-        if "t2" in vol_name.lower() or "t2" in patient_data.modality.lower():
-            btn_seg = QPushButton("Segment 2D→3D")
-            btn_seg.clicked.connect(lambda _, n=vol_name: self._run_segmentation(n))
-            self.tbl_volumes.setCellWidget(row, 3, btn_seg)
+        self.tbl_volumes.setItem(row, 3, QTableWidgetItem("Ready"))
 
     def _on_volume_selected(self):
         row = self.tbl_volumes.currentRow()
         if row < 0: return
         vol_name = self.tbl_volumes.item(row, 0).text()
         self._activate_volume(vol_name)
+        
+        patient_data = self.volumes[vol_name]
+        is_t2 = "t2" in vol_name.lower() or "t2" in patient_data.modality.lower()
+        self.btn_run_seg.setEnabled(is_t2)
+
+    def _on_segmentation_clicked(self):
+        if self.current_vol_name:
+            self._run_segmentation(self.current_vol_name)
 
     def _activate_volume(self, vol_name: str):
         if vol_name not in self.volumes: return

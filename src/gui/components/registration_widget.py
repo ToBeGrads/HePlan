@@ -2,7 +2,7 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtWidgets import (QWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QSlider, QLabel, 
                              QGroupBox, QPushButton, QSizePolicy, QScrollArea, QFrame,
-                             QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox)
+                             QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox, QProgressBar)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 
 # Maintain existing pyqtgraph settings
@@ -66,11 +66,8 @@ class RegistrationWidget(QWidget):
         self.img_result_transformed = pg.ImageItem()   # Transformed Anatomy Layer
         
         # Setup Mask Colormap (Match MRI Viewer)
-        mask_lut = np.zeros((256, 4), dtype=np.uint8)
-        mask_lut[0] = [0, 0, 0, 0]             # Background transparent
-        mask_lut[1] = [255, 0, 0, 150]         # Target class 1 (Red)
-        mask_lut[2] = [0, 255, 0, 150]         # Target class 2 (Green)
-        self.img_result_mask.setLookupTable(mask_lut)
+        self._apply_mask_lut(150)
+
         
         # Setup Transformed Colormap (warm tint) with a transparent background
         lut = pg.colormap.get('magma').getLookupTable()
@@ -125,9 +122,10 @@ class RegistrationWidget(QWidget):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         
         grp_volumes = QGroupBox("📁 Loaded Volumes")
-        grp_volumes.setStyleSheet("color: #cdd6f4;")
+        grp_volumes.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
         vol_layout = QVBoxLayout(grp_volumes)
-        vol_layout.setContentsMargins(8, 8, 8, 8)
+        vol_layout.setContentsMargins(10, 10, 10, 10)
+        vol_layout.setAlignment(Qt.AlignTop)
         
         self.tbl_volumes = QTableWidget()
         self.tbl_volumes.setColumnCount(3)
@@ -138,7 +136,7 @@ class RegistrationWidget(QWidget):
         self.tbl_volumes.setShowGrid(True)
         self.tbl_volumes.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl_volumes.verticalHeader().setVisible(False)
-        self.tbl_volumes.setStyleSheet("background-color: #181825; color: #cdd6f4;")
+        self.tbl_volumes.setStyleSheet("QTableWidget { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; } QHeaderView::section { background-color: #313244; color: #a6adc8; font-weight: bold; border: none; padding: 4px; }")
         vol_layout.addWidget(self.tbl_volumes)
         
         btn_layout = QHBoxLayout()
@@ -153,32 +151,78 @@ class RegistrationWidget(QWidget):
         btn_layout.addWidget(self.btn_set_fixed)
         btn_layout.addWidget(self.btn_set_moving)
         vol_layout.addLayout(btn_layout)
+        vol_layout.addStretch()
         scroll_layout.addWidget(grp_volumes)
 
         grp_controls = QGroupBox("⚙️ Registration Controls")
-        grp_controls.setStyleSheet("color: #cdd6f4;")
+        grp_controls.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
         ctrl_layout = QVBoxLayout(grp_controls)
+        ctrl_layout.setContentsMargins(10, 10, 10, 10)
+        ctrl_layout.setSpacing(8)
+        ctrl_layout.setAlignment(Qt.AlignTop)
 
         # Display Mode Selection
         self.cmb_display_mode = QComboBox()
-        self.cmb_display_mode.addItems(["Full Anatomy Overlay", "Targeted (Otsu Threshold)"])
-        self.cmb_display_mode.setStyleSheet("background-color: #313244; color: #cdd6f4; padding: 4px;")
+        self.cmb_display_mode.addItems(["Full Anatomy Overlay", "Electrode Extraction"])
+        self.cmb_display_mode.setStyleSheet("background-color: #313244; color: #cdd6f4; padding: 6px; border-radius: 4px;")
         self.cmb_display_mode.currentIndexChanged.connect(lambda: self._update_views())
         ctrl_layout.addWidget(QLabel("Result Display Mode:"))
         ctrl_layout.addWidget(self.cmb_display_mode)
         
         self.btn_run_reg = QPushButton("▶ Run Co-Registration")
-        self.btn_run_reg.setStyleSheet("background-color: #89b4fa; color: #11111b; font-weight: bold; padding: 6px; margin-top: 10px;")
+        self.btn_run_reg.setStyleSheet("QPushButton { background-color: #89b4fa; color: #11111b; font-weight: bold; font-size: 13px; padding: 8px; border-radius: 6px; margin-top: 10px; }")
         self.btn_run_reg.clicked.connect(self._run_coregistration)
         
         self.btn_reset = QPushButton("Reset Views")
-        self.btn_reset.setStyleSheet("background-color: #313244; color: #cdd6f4; padding: 6px;")
+        self.btn_reset.setStyleSheet("background-color: #313244; color: #cdd6f4; padding: 6px; border-radius: 4px;")
         self.btn_reset.clicked.connect(self._reset_views)
         
+        # Progress UI
+        self.grp_progress = QWidget()
+        prog_layout = QVBoxLayout(self.grp_progress)
+        prog_layout.setContentsMargins(0, 5, 0, 0)
+        self.lbl_progress = QLabel("")
+        self.lbl_progress.setStyleSheet("color: #f9e2af; font-size: 11px;")
+        self.prog_bar = QProgressBar()
+        self.prog_bar.setRange(0, 0)
+        self.prog_bar.setTextVisible(False)
+        self.prog_bar.setStyleSheet("QProgressBar { border: 1px solid #45475a; border-radius: 3px; background-color: #1e1e2e; height: 10px; } QProgressBar::chunk { background-color: #89b4fa; border-radius: 3px; }")
+        prog_layout.addWidget(self.lbl_progress)
+        prog_layout.addWidget(self.prog_bar)
+        self.grp_progress.setVisible(False)
+        
         ctrl_layout.addWidget(self.btn_run_reg)
+        ctrl_layout.addWidget(self.grp_progress)
         ctrl_layout.addWidget(self.btn_reset)
+        ctrl_layout.addStretch()
         
         scroll_layout.addWidget(grp_controls)
+        
+        # --- Segmentation Overlay Controls ---
+        self.grp_seg_controls = QGroupBox("🧠 Segmentation Overlay")
+        self.grp_seg_controls.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
+        seg_layout = QVBoxLayout(self.grp_seg_controls)
+        seg_layout.setAlignment(Qt.AlignTop)
+        
+        mask_controls_layout = QHBoxLayout()
+        self.btn_toggle_mask = QPushButton("👁 Toggle")
+        self.btn_toggle_mask.setCheckable(True)
+        self.btn_toggle_mask.setChecked(True)
+        self.btn_toggle_mask.setStyleSheet("background-color: #313244; color: #cdd6f4; padding: 4px; border-radius: 2px;")
+        self.btn_toggle_mask.clicked.connect(self._toggle_mask_visibility)
+        
+        self.slider_mask_opacity = QSlider(Qt.Horizontal)
+        self.slider_mask_opacity.setRange(0, 255)
+        self.slider_mask_opacity.setValue(150)
+        self.slider_mask_opacity.valueChanged.connect(self._on_mask_opacity_changed)
+        
+        mask_controls_layout.addWidget(QLabel("Opacity:"))
+        mask_controls_layout.addWidget(self.slider_mask_opacity)
+        mask_controls_layout.addWidget(self.btn_toggle_mask)
+        seg_layout.addLayout(mask_controls_layout)
+        seg_layout.addStretch()
+        scroll_layout.addWidget(self.grp_seg_controls)
+        
         scroll_layout.addStretch()
         
         scroll.setWidget(scroll_content)
@@ -318,6 +362,19 @@ class RegistrationWidget(QWidget):
 
     # ============ Overlay UI Logic ============
 
+    def _apply_mask_lut(self, opacity):
+        mask_lut = np.zeros((256, 4), dtype=np.uint8)
+        mask_lut[0] = [0, 0, 0, 0]                               # Background transparent
+        mask_lut[1] = [255, 0, 0, int(opacity)]                  # Target class 1 (Red)
+        mask_lut[2] = [0, 255, 0, int(opacity)]                  # Target class 2 (Green)
+        self.img_result_mask.setLookupTable(mask_lut)
+
+    def _on_mask_opacity_changed(self, value):
+        self._apply_mask_lut(value)
+
+    def _toggle_mask_visibility(self):
+        self.img_result_mask.setVisible(self.btn_toggle_mask.isChecked())
+
     def _on_opacity_changed(self, value):
         self.overlay_opacity = value / 100.0
         if self._show_overlay:
@@ -363,7 +420,8 @@ class RegistrationWidget(QWidget):
             fixed_vol_name = self.header_fixed.lbl_title.text().replace("Fixed: ", "")
             if fixed_vol_name in self.masks:
                 mask_slice = np.flipud(self.masks[fixed_vol_name][self.slice_fixed])
-                self.img_result_mask.setImage(mask_slice, autoLevels=False)
+                # Explicitly set levels to (0, 255) to ensure mapping array values 1,2 directly map to LUT indices 1,2
+                self.img_result_mask.setImage(mask_slice, autoLevels=False, levels=(0, 255))
             else:
                 # === FIX: Use clear() instead of creating a default float64 array ===
                 self.img_result_mask.clear()
@@ -389,16 +447,31 @@ class RegistrationWidget(QWidget):
         if self.transformed_volume is not None:
             tf_slice = np.flipud(self.transformed_volume[self.slice_fixed]).copy()
             
-            # Application of Targeted Otsu Threshold if enabled
-            if "Otsu" in self.cmb_display_mode.currentText():
+            # Application of Targeted Extraction if enabled
+            if "Electrode" in self.cmb_display_mode.currentText():
                 try:
-                    from skimage.filters import threshold_otsu
+                    from skimage import morphology
                     if np.any(tf_slice):
-                        thresh = threshold_otsu(tf_slice)
-                        tf_slice[tf_slice < thresh] = 0
+                        # Use a less aggressive percentile (e.g., 98.0) or simply take the top 10% of the max intensity
+                        # since electrodes (metal) are typically the absolute brightest objects in the scan.
+                        max_val = np.max(tf_slice)
+                        # We use 78% of the max value. This is highly robust because metal > bone in density
+                        thresh = max(np.percentile(tf_slice, 98), max_val * 0.78)
+                        
+                        mask = tf_slice > thresh
+                        
+                        # Remove only very tiny single-pixel noise
+                        mask = morphology.remove_small_objects(mask, min_size=2)
+                        
+                        # Make the electrode a solid, full circle
+                        mask = morphology.closing(mask, morphology.disk(2))
+                        mask = morphology.dilation(mask, morphology.disk(1))
+                        
+                        # Apply the mask
+                        tf_slice[~mask] = 0
                 except ImportError:
                     # Fallback to pure top-percentile visualization if skimage isn't installed
-                    thresh = np.percentile(tf_slice, 95)
+                    thresh = np.percentile(tf_slice, 98)
                     tf_slice[tf_slice < thresh] = 0
 
             self.img_result_transformed.setImage(tf_slice, autoLevels=True)
@@ -410,30 +483,97 @@ class RegistrationWidget(QWidget):
             self.btn_run_reg.setText("Error: Set Both Images First!")
             return
 
+        # Determine Cache Path (Patient Folder level)
+        import os
+        import numpy as np
+        
+        clean_path = os.path.normpath(self.moving_data.file_path)
+        pname = self.moving_data.metadata.get("patient_name", "").strip()
+        patient_folder = None
+        
+        if pname and pname.lower() in clean_path.lower():
+            # Safely cut path exactly after the patient's name folder (case-insensitive)
+            idx = clean_path.lower().find(pname.lower()) + len(pname)
+            patient_folder = clean_path[:idx]
+            
+        if not patient_folder:
+            # Fallback heuristic: step up past generic DICOM/Series folders
+            curr = clean_path if os.path.isdir(clean_path) else os.path.dirname(clean_path)
+            generic_terms = ['dicom', 'mri', 'ct', 't1', 't2', 'series', 'study', 'ax', 'cor', 'sag']
+            
+            # Step up as long as the folder name looks like a generic sub-folder
+            while curr != os.path.dirname(curr):
+                if any(term in os.path.basename(curr).lower() for term in generic_terms):
+                    curr = os.path.dirname(curr)
+                else:
+                    break
+            patient_folder = curr
+            
+        cache_dir = os.path.join(patient_folder, "dbs_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_vol_path = os.path.join(cache_dir, f"reg_volume_to_{self.fixed_name}.npy")
+        cache_mask_path = os.path.join(cache_dir, f"reg_mask_to_{self.fixed_name}.npy")
+
+        # Check Cache
+        if os.path.exists(cache_vol_path):
+            self.btn_run_reg.setText("Loading Cached Registration...")
+            self.grp_progress.setVisible(True)
+            self.lbl_progress.setText("Loaded from cache!")
+            self.prog_bar.setRange(0, 100)
+            self.prog_bar.setValue(100)
+            
+            import PyQt5.QtCore as QtCore
+            def finish_cache_load():
+                transformed_vol = np.load(cache_vol_path)
+                transformed_mask = np.load(cache_mask_path) if os.path.exists(cache_mask_path) else None
+                
+                self.transformed_volume = transformed_vol
+                self.transformed_mask = transformed_mask
+                self.btn_run_reg.setText("▶ Run Co-Registration")
+                self.btn_toggle.setChecked(True)
+                self.grp_progress.setVisible(False)
+                self._toggle_overlay()
+                self._update_views()
+                
+            QtCore.QTimer.singleShot(500, finish_cache_load)
+            return
+
         self.btn_run_reg.setText("⏳ Calculating (Please wait)...")
         self.btn_run_reg.setEnabled(False)
+        self.grp_progress.setVisible(True)
+        self.lbl_progress.setText("Running spatial registration engine...")
+        self.prog_bar.setRange(0, 0) # Indeterminate
 
         # Extract moving mask if available to push down to the spatial engine pipeline
         moving_mask = self.masks.get(self.moving_name) if self.moving_name else None
         self.worker = RegistrationWorker(self.fixed_data, self.moving_data, moving_mask=moving_mask)
         
         def on_finished(transformed, transformed_mask):
+            # Save to Cache
+            np.save(cache_vol_path, transformed)
+            if transformed_mask is not None:
+                np.save(cache_mask_path, transformed_mask)
+                
             self.transformed_volume = transformed
             self.transformed_mask = transformed_mask
             self.btn_run_reg.setText("▶ Run Co-Registration")
             self.btn_run_reg.setEnabled(True)
             self.btn_toggle.setChecked(True)
+            self.grp_progress.setVisible(False)
             self._toggle_overlay()
             self._update_views()
             
         def on_error(msg):
             self.btn_run_reg.setText(f"Error! {msg[:10]}...")
             self.btn_run_reg.setEnabled(True)
+            self.grp_progress.setVisible(False)
             print("Registration Error:", msg)
 
         self.worker.finished.connect(on_finished)
         self.worker.error.connect(on_error)
         self.worker.start()
+
+
 
 
 # =====================================================================
