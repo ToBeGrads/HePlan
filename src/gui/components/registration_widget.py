@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (QWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QSl
                              QGroupBox, QPushButton, QSizePolicy, QScrollArea, QFrame,
                              QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox, QProgressBar)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from src.gui.components.ruler_tool import RulerTool
 
 # Maintain existing pyqtgraph settings
 pg.setConfigOption('background', '#181825')
@@ -84,6 +85,14 @@ class RegistrationWidget(QWidget):
         self.view_result.addItem(self.img_result_fixed)
         self.view_result.addItem(self.img_result_transformed)
         self.view_result.addItem(self.img_result_mask)
+
+        # Ruler tool instances (one per view)
+        self.rulers = {
+            'fixed': RulerTool(self.view_fixed, spacing_xy=(1.0, 1.0), color='#f9e2af'),
+            'moving': RulerTool(self.view_moving, spacing_xy=(1.0, 1.0), color='#a6e3a1'),
+            'result': RulerTool(self.view_result, spacing_xy=(1.0, 1.0), color='#f38ba8'),
+        }
+
         # Create headers (with view keys attached for slice stepping)
         self.header_fixed = self._create_header("Fixed Image (Target Space)", view_key='fixed')
         self.header_moving = self._create_header("Moving Image", view_key='moving')
@@ -222,6 +231,51 @@ class RegistrationWidget(QWidget):
         seg_layout.addLayout(mask_controls_layout)
         seg_layout.addStretch()
         scroll_layout.addWidget(self.grp_seg_controls)
+
+        # --- MEASUREMENT TOOLS GROUP ---
+        grp_ruler = QGroupBox("📏 Measurement Tools")
+        grp_ruler.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
+        ruler_layout = QVBoxLayout(grp_ruler)
+        ruler_layout.setContentsMargins(10, 10, 10, 10)
+        ruler_layout.setSpacing(6)
+        ruler_layout.setAlignment(Qt.AlignTop)
+
+        ruler_btn_layout = QHBoxLayout()
+        ruler_btn_layout.setSpacing(8)
+
+        self.btn_ruler_toggle = QPushButton("📏 Ruler")
+        self.btn_ruler_toggle.setCheckable(True)
+        self.btn_ruler_toggle.setChecked(False)
+        self.btn_ruler_toggle.setToolTip("Toggle ruler mode: click two points to measure distance")
+        self.btn_ruler_toggle.setStyleSheet("""
+            QPushButton { background-color: #313244; color: #cdd6f4; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+            QPushButton:checked { background-color: #f9e2af; color: #11111b; font-weight: bold; }
+        """)
+        self.btn_ruler_toggle.clicked.connect(self._toggle_ruler_mode)
+        ruler_btn_layout.addWidget(self.btn_ruler_toggle)
+
+        self.btn_ruler_show = QPushButton("👁")
+        self.btn_ruler_show.setCheckable(True)
+        self.btn_ruler_show.setChecked(True)
+        self.btn_ruler_show.setFixedSize(30, 30)
+        self.btn_ruler_show.setToolTip("Show/hide measurement lines")
+        self.btn_ruler_show.setStyleSheet("""
+            QPushButton { background-color: #313244; border-radius: 4px; font-size: 14px; }
+            QPushButton:checked { background-color: #89b4fa; color: #1e1e2e; }
+        """)
+        self.btn_ruler_show.clicked.connect(self._toggle_ruler_visibility)
+        ruler_btn_layout.addWidget(self.btn_ruler_show)
+
+        self.btn_ruler_clear = QPushButton("🗑")
+        self.btn_ruler_clear.setFixedSize(30, 30)
+        self.btn_ruler_clear.setToolTip("Clear measurements on current slices")
+        self.btn_ruler_clear.setStyleSheet("QPushButton { background-color: #313244; color: #cdd6f4; border-radius: 4px; font-size: 14px; }")
+        self.btn_ruler_clear.clicked.connect(self._clear_ruler_current)
+        ruler_btn_layout.addWidget(self.btn_ruler_clear)
+
+        ruler_layout.addLayout(ruler_btn_layout)
+        ruler_layout.addStretch()
+        scroll_layout.addWidget(grp_ruler)
         
         scroll_layout.addStretch()
         
@@ -318,6 +372,13 @@ class RegistrationWidget(QWidget):
             self.fixed_volume = self.fixed_data.volume
             self.slice_fixed = self.fixed_volume.shape[0] // 2
             self.header_fixed.lbl_title.setText(f"Fixed: {vol_name}")
+            
+            # Update ruler spacing for fixed and result views
+            self.rulers['fixed'].clear_all()
+            self.rulers['fixed'].set_spacing(1.0, 1.0)
+            self.rulers['result'].clear_all()
+            self.rulers['result'].set_spacing(1.0, 1.0)
+            
             self._update_views(auto_level_fixed=True)
 
     def _assign_moving(self):
@@ -331,6 +392,11 @@ class RegistrationWidget(QWidget):
             self.moving_volume = self.moving_data.volume
             self.slice_moving = self.moving_volume.shape[0] // 2
             self.header_moving.lbl_title.setText(f"Moving: {vol_name}")
+            
+            # Update ruler spacing for moving view
+            self.rulers['moving'].clear_all()
+            self.rulers['moving'].set_spacing(1.0, 1.0)
+            
             # Clear previous registration results since a new volume was linked
             self.transformed_volume = None
             self.transformed_mask = None
@@ -341,6 +407,25 @@ class RegistrationWidget(QWidget):
         self.view_fixed.autoRange()
         self.view_moving.autoRange()
         self.view_result.autoRange()
+
+    # ── Ruler Tool Actions ──────────────────────────────────────
+
+    def _toggle_ruler_mode(self):
+        """Activate or deactivate ruler measurement mode on all views."""
+        active = self.btn_ruler_toggle.isChecked()
+        for ruler in self.rulers.values():
+            ruler.set_active(active)
+
+    def _toggle_ruler_visibility(self):
+        """Show or hide all measurement lines on all views."""
+        visible = self.btn_ruler_show.isChecked()
+        for ruler in self.rulers.values():
+            ruler.set_visible(visible)
+
+    def _clear_ruler_current(self):
+        """Clear measurements on the currently displayed slices."""
+        for ruler in self.rulers.values():
+            ruler.clear_slice()
 
     def load_volumes(self, volumes_dict):
         """Sync global loading"""
@@ -412,6 +497,10 @@ class RegistrationWidget(QWidget):
                 else:
                     self.img_fixed.setImage(fixed_slice_img, autoLevels=False, levels=levels_f)
                     self.img_result_fixed.setImage(fixed_slice_img, autoLevels=False, levels=levels_f)
+                    
+            sz, sy, sx = self.fixed_data.spacing
+            self.img_fixed.setTransform(pg.QtGui.QTransform().scale(sx, sy))
+            self.img_result_fixed.setTransform(pg.QtGui.QTransform().scale(sx, sy))
             
             self.header_fixed.lbl_slice.setText(f"{self.slice_fixed + 1}/{z_f}")
             self.header_result.lbl_slice.setText(f"{self.slice_fixed + 1}/{z_f}")
@@ -422,6 +511,7 @@ class RegistrationWidget(QWidget):
                 mask_slice = np.flipud(self.masks[fixed_vol_name][self.slice_fixed])
                 # Explicitly set levels to (0, 255) to ensure mapping array values 1,2 directly map to LUT indices 1,2
                 self.img_result_mask.setImage(mask_slice, autoLevels=False, levels=(0, 255))
+                self.img_result_mask.setTransform(pg.QtGui.QTransform().scale(sx, sy))
             else:
                 # === FIX: Use clear() instead of creating a default float64 array ===
                 self.img_result_mask.clear()
@@ -441,6 +531,9 @@ class RegistrationWidget(QWidget):
                     self.img_moving.setImage(moving_slice_img, autoLevels=True)
                 else:
                     self.img_moving.setImage(moving_slice_img, autoLevels=False, levels=levels_m)
+                    
+            sz, sy, sx = self.moving_data.spacing
+            self.img_moving.setTransform(pg.QtGui.QTransform().scale(sx, sy))
                     
             self.header_moving.lbl_slice.setText(f"{self.slice_moving + 1}/{z_m}")
             
@@ -475,6 +568,16 @@ class RegistrationWidget(QWidget):
                     tf_slice[tf_slice < thresh] = 0
 
             self.img_result_transformed.setImage(tf_slice, autoLevels=True)
+            sz, sy, sx = self.fixed_data.spacing
+            self.img_result_transformed.setTransform(pg.QtGui.QTransform().scale(sx, sy))
+
+        # Update ruler slice visibility
+        if self.fixed_volume is not None:
+            self.rulers['fixed'].set_slice(self.slice_fixed)
+            self.rulers['result'].set_slice(self.slice_fixed)
+        if self.moving_volume is not None:
+            self.rulers['moving'].set_slice(self.slice_moving)
+
     # ============ The Scientific Coregistration Backend ============
     
     def _run_coregistration(self):

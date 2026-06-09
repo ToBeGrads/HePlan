@@ -7,6 +7,7 @@ from src.core.patient_data import PatientData
 from src.gui.components.patient_loader_widget import PatientLoaderWidget
 from src.gui.components.mri_viewer_widget import MRIViewerWidget
 from src.gui.components.registration_widget import RegistrationWidget
+from src.gui.components.acpc_widget import ACPCWidget
 
 
 # ⚠️ MUST be called BEFORE QApplication
@@ -53,7 +54,11 @@ class MainWindow(QMainWindow):
 
         # Tab 3: Registration
         self.registration_tab = RegistrationWidget()
-        self.tabs.addTab(self.registration_tab, "Registration")    #self.tabs.addTab(self.registration_tab, "3. Registration")
+        self.tabs.addTab(self.registration_tab, "Registration")
+
+        # Tab 4: AC-PC Definition
+        self.acpc_tab = ACPCWidget()
+        self.tabs.addTab(self.acpc_tab, "AC-PC")
 
         # Status bar
         self.status_bar = QStatusBar()
@@ -65,6 +70,9 @@ class MainWindow(QMainWindow):
         
         # Connect Loader -> Registration (accumulate volumes)
         self.loader_tab.data_loaded.connect(self._add_to_registration)
+
+        # Connect Loader -> AC-PC (accumulate volumes)
+        self.loader_tab.data_loaded.connect(self._add_to_acpc)
         
         # Connect status messages
         self.loader_tab.status_message.connect(self.status_bar.showMessage)
@@ -84,6 +92,14 @@ class MainWindow(QMainWindow):
         
         # Refresh registration UI
         self.registration_tab.load_volumes(self.registration_tab.volumes)
+
+    def _add_to_acpc(self, patient_data: PatientData):
+        """Add volume to AC-PC widget."""
+        pid = patient_data.metadata.get("PatientID", "Unknown")
+        modality = patient_data.modality
+        desc = patient_data.metadata.get("SeriesDescription", "Scan")
+        vol_name = f"{pid}_{modality}_{desc}"
+        self.acpc_tab.add_volume(patient_data, vol_name)
 
     def on_patient_loaded(self, patient_data: PatientData):
         pid = patient_data.metadata.get("PatientID", "Unknown")
