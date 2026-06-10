@@ -97,6 +97,7 @@ QTableWidget {
     alternate-background-color: #1e1e2e;
     font-size: 12px;
     color: #cdd6f4;
+    border-radius: 4px;
 }
 
 QTableWidget::item {
@@ -118,6 +119,13 @@ QHeaderView::section {
     
     font-weight: 600;
     font-size: 12px;
+}
+QHeaderView::section:first {
+    border-top-left-radius: 4px;
+}
+
+QHeaderView::section:last {
+    border-top-right-radius: 4px;
 }
 
 QHeaderView::section:hover {
@@ -265,7 +273,8 @@ QTabWidget#myTabs::pane {
 QTabBar::tab {
     background: transparent;
     border: none;
-    padding: 8px 16px;
+    padding: 8px;
+    width: 100px;
     color: #cdd6f4;
 }
 
@@ -285,7 +294,7 @@ QTabBar::tab:hover {
 QPushButton#dicomBtn {
     background-color: #89b4fa;
     color: black;
-   
+    border-radius: 4px;
     min-height: 30px;
     padding: 6px 12px;
     opacity: 0.9;
@@ -294,7 +303,7 @@ QPushButton#dicomBtn {
 QPushButton#niftiBtn {
     background-color: #89b4fa;
     color: black;
-    
+    border-radius: 4px;
     min-height: 30px;
     padding: 6px 12px;
     opacity: 0.2;
@@ -318,6 +327,7 @@ QPushButton#loadBtn {
     right: 50%;
     padding: 6px 12px;
     opacity: 0.9;
+    border-radius: 4px;
 }
 QPushButton#loadBtn:disabled {
      background-color: #2a2a3c;
@@ -334,7 +344,7 @@ QGroupBox#grpVolumes {
     font-weight: bold;   
     background-color: transparent;
     border: 1px solid #dbddf5;
-    border-radius: 6px;
+    border-radius: 4px;
     margin-top: 12px;
     max-height: 200;
 }   
@@ -348,6 +358,9 @@ QTableWidget#tblVolumes {
     alternate-background-color: #1e1e2e;
     font-size: 12px;
     color: #cdd6f4;
-    border-radius: 12px;
+    border-radius: 4px;
 }
 
+/* ───────────────────────────────────────
+    Navbar
+   ─────────────────────────────────────── */

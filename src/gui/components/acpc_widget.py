@@ -29,10 +29,13 @@ from PyQt5.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QGridLayout,
     QGroupBox, QLabel, QPushButton, QComboBox,
     QScrollArea, QFrame, QSizePolicy, QTableWidget,
-    QTableWidgetItem, QAbstractItemView, QHeaderView,
+    QTableWidgetItem, QAbstractItemView, QHeaderView, QSlider
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QCursor
+
+from src.gui.components.ruler_tool import RulerTool
+from src.gui.components.collapsible_section import CollapsibleSection
 
 # ── pyqtgraph global config ────────────────────────────────────────────────────
 pg.setConfigOption('background', '#181825')
@@ -273,7 +276,9 @@ class ACPCWidget(QWidget):
 
         root.addWidget(grid_w, 3)
 
-        # ── Sidebar ───────────────────────────────────────────────────────────
+
+
+    # ── Sidebar ───────────────────────────────────────────────────────────
         sidebar = QWidget()
         sidebar.setStyleSheet("background-color:#1e1e2e;border:none;")
         sb_lay = QVBoxLayout(sidebar)
@@ -282,6 +287,28 @@ class ACPCWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollBar:vertical {
+                border: none;
+                background: #1e1e2e;
+                width: 8px;
+                margin: 0px 0px 0px 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #45475a;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #585b70;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
         sc = QWidget()
         sl = QVBoxLayout(sc)
         sl.setContentsMargins(0, 0, 0, 0)
@@ -291,11 +318,29 @@ class ACPCWidget(QWidget):
         sl.addWidget(self._build_placement_grp())
         sl.addWidget(self._build_points_grp())
         sl.addWidget(self._build_transfer_grp())
+        sl.addWidget(self._build_tools_grp())
         sl.addStretch()
+
+        # Prevent input widgets from hijacking the scroll wheel
+        def ignore_wheel(event):
+            event.ignore()
+        
+        self.cmb_t2.wheelEvent = ignore_wheel
+        self.sld_window.wheelEvent = ignore_wheel
+        self.sld_level.wheelEvent = ignore_wheel
+        self.cmb_preset.wheelEvent = ignore_wheel
 
         scroll.setWidget(sc)
         sb_lay.addWidget(scroll)
         root.addWidget(sidebar, 1)
+
+        # ── Ruler Tool instances ──────────────────────────────────────────────
+        self.rulers = {
+            'axial': RulerTool(self.views['axial'], spacing_xy=(1.0, 1.0), color='#f9e2af'),
+            'coronal': RulerTool(self.views['coronal'], spacing_xy=(1.0, 1.0), color='#a6e3a1'),
+            'sagittal': RulerTool(self.views['sagittal'], spacing_xy=(1.0, 1.0), color='#f38ba8'),
+            't2': RulerTool(self.views['t2'], spacing_xy=(1.0, 1.0), color='#b4befe'),
+        }
 
         # ── Wire T1 view clicks ───────────────────────────────────────────────
         for key in ('axial', 'coronal', 'sagittal'):
@@ -349,11 +394,9 @@ class ACPCWidget(QWidget):
 
     # ── Sidebar group factories ───────────────────────────────────────────────
 
-    def _build_volumes_grp(self) -> QGroupBox:
-        grp = QGroupBox("📁 Loaded Volumes")
-        grp.setStyleSheet(_GRP)
-        lay = QVBoxLayout(grp)
-        lay.setContentsMargins(10, 10, 10, 10)
+    def _build_volumes_grp(self) -> QWidget:
+        grp = CollapsibleSection("Loaded Volumes", expanded=True)
+        lay = grp.content_layout
         lay.setAlignment(Qt.AlignTop)
 
         self.tbl = QTableWidget()
@@ -364,7 +407,7 @@ class ACPCWidget(QWidget):
         self.tbl.setAlternatingRowColors(True)
         self.tbl.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl.verticalHeader().setVisible(False)
-        self.tbl.setMaximumHeight(120)
+        self.tbl.setMinimumHeight(150)
         self.tbl.setStyleSheet(
             "QTableWidget{background:#1e1e2e;color:#cdd6f4;"
             "border:1px solid #45475a;border-radius:4px;}"
@@ -372,14 +415,12 @@ class ACPCWidget(QWidget):
             "font-weight:bold;border:none;padding:4px;}"
         )
         self.tbl.itemSelectionChanged.connect(self._on_vol_selected)
-        lay.addWidget(self.tbl)
+        grp.addWidget(self.tbl)
         return grp
 
-    def _build_placement_grp(self) -> QGroupBox:
-        grp = QGroupBox("🖱 Landmark Placement")
-        grp.setStyleSheet(_GRP)
-        lay = QVBoxLayout(grp)
-        lay.setContentsMargins(10, 10, 10, 10)
+    def _build_placement_grp(self) -> QWidget:
+        grp = CollapsibleSection("Landmark Placement", expanded=False)
+        lay = grp.content_layout
         lay.setSpacing(8)
 
         hint = QLabel(
@@ -389,7 +430,7 @@ class ACPCWidget(QWidget):
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#a6adc8;font-size:10px;")
-        lay.addWidget(hint)
+        grp.addWidget(hint)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
@@ -408,7 +449,7 @@ class ACPCWidget(QWidget):
         self.btn_pc.toggled.connect(lambda on: self._toggle_place('pc', on))
         btn_row.addWidget(self.btn_pc)
 
-        lay.addLayout(btn_row)
+        grp.addLayout(btn_row)
 
         btn_clr = QPushButton("🗑 Clear All")
         btn_clr.setStyleSheet(_BTN)
@@ -416,11 +457,11 @@ class ACPCWidget(QWidget):
         lay.addWidget(btn_clr)
         return grp
 
-    def _build_points_grp(self) -> QGroupBox:
-        grp = QGroupBox("📍 Defined Points")
-        grp.setStyleSheet(_GRP)
-        g = QGridLayout(grp)
-        g.setContentsMargins(10, 10, 10, 10)
+    def _build_points_grp(self) -> QWidget:
+        grp = CollapsibleSection("Defined Points", expanded=False)
+        w = QWidget()
+        g = QGridLayout(w)
+        g.setContentsMargins(0, 5, 0, 0)
         g.setSpacing(6)
 
         # AC
@@ -459,13 +500,12 @@ class ACPCWidget(QWidget):
         g.addWidget(btn_cp,     2, 2)
 
         g.setColumnStretch(1, 1)
+        grp.addWidget(w)
         return grp
 
-    def _build_transfer_grp(self) -> QGroupBox:
-        grp = QGroupBox("🔄 Transfer to T2")
-        grp.setStyleSheet(_GRP)
-        lay = QVBoxLayout(grp)
-        lay.setContentsMargins(10, 10, 10, 10)
+    def _build_transfer_grp(self) -> QWidget:
+        grp = CollapsibleSection("Transfer to T2", expanded=False)
+        lay = grp.content_layout
         lay.setSpacing(6)
 
         lbl = QLabel(
@@ -474,15 +514,15 @@ class ACPCWidget(QWidget):
         )
         lbl.setWordWrap(True)
         lbl.setStyleSheet("color:#a6adc8;font-size:10px;")
-        lay.addWidget(lbl)
+        grp.addWidget(lbl)
 
         self.cmb_t2 = QComboBox()
         self.cmb_t2.addItem("— select T2 volume —")
         self.cmb_t2.setStyleSheet(
-            "background:#313244;color:#cdd6f4;padding:4px;border-radius:4px;"
+            "QComboBox{background:#313244;color:#cdd6f4;padding:4px;border-radius:4px;}"
         )
         self.cmb_t2.currentIndexChanged.connect(self._refresh_transfer_btn)
-        lay.addWidget(self.cmb_t2)
+        grp.addWidget(self.cmb_t2)
 
         self.btn_transfer = QPushButton("▶ Transfer AC/PC → T2")
         self.btn_transfer.setEnabled(False)
@@ -492,7 +532,7 @@ class ACPCWidget(QWidget):
             "QPushButton:disabled{background:#45475a;color:#a6adc8;}"
         )
         self.btn_transfer.clicked.connect(self._run_transfer)
-        lay.addWidget(self.btn_transfer)
+        grp.addWidget(self.btn_transfer)
 
         self.btn_save = QPushButton("💾 Save to Patient Folder")
         self.btn_save.setEnabled(False)
@@ -502,13 +542,185 @@ class ACPCWidget(QWidget):
             "QPushButton:disabled{background:#45475a;color:#a6adc8;}"
         )
         self.btn_save.clicked.connect(self._save)
-        lay.addWidget(self.btn_save)
+        grp.addWidget(self.btn_save)
 
         self.lbl_status = QLabel("")
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setStyleSheet("color:#a6adc8;font-size:10px;margin-top:4px;")
-        lay.addWidget(self.lbl_status)
+        grp.addWidget(self.lbl_status)
         return grp
+
+    def _build_tools_grp(self) -> QWidget:
+        grp = CollapsibleSection("Tools", expanded=False)
+        
+        # Window / Level
+        self.lbl_wl = QLabel("W: 0  |  L: 0")
+        self.lbl_wl.setStyleSheet("color: black; font-size: 11px; background-color: white; padding: 2px; border-radius: 4px; max-height: 20px;")
+        self.lbl_wl.setAlignment(Qt.AlignCenter)
+        grp.addWidget(self.lbl_wl)
+        
+        self.sld_window = QSlider(Qt.Horizontal)
+        self.sld_window.setRange(1, 4000)
+        self.sld_level = QSlider(Qt.Horizontal)
+        self.sld_level.setRange(-2000, 4000)
+        
+        grp.addWidget(QLabel("Window (Contrast):"))
+        grp.addWidget(self.sld_window)
+        grp.addWidget(QLabel("Level (Brightness):"))
+        grp.addWidget(self.sld_level)
+        
+        self.sld_window.valueChanged.connect(self._update_window_level)
+        self.sld_level.valueChanged.connect(self._update_window_level)
+        
+        preset_layout = QHBoxLayout()
+        self.cmb_preset = QComboBox()
+        self.cmb_preset.addItems(["Auto", "T1", "T2", "SWAN", "CT"])
+        self.btn_apply_preset = QPushButton("Apply")
+        preset_layout.addWidget(self.cmb_preset)
+        preset_layout.addWidget(self.btn_apply_preset)
+        self.btn_apply_preset.clicked.connect(self._apply_preset)
+        grp.addLayout(preset_layout)
+        
+        self.btn_reset_wl = QPushButton("🔄 Reset to Auto")
+        self.btn_reset_wl.clicked.connect(lambda: self._apply_preset(auto=True))
+        grp.addWidget(self.btn_reset_wl)
+
+        # Measurement Tools
+        lbl_measure = QLabel("Measurement Tools:")
+        lbl_measure.setStyleSheet("color: #a6adc8; font-size: 11px; margin-top: 10px;")
+        grp.addWidget(lbl_measure)
+        
+        ruler_btn_layout = QHBoxLayout()
+        ruler_btn_layout.setSpacing(8)
+
+        self.btn_ruler_toggle = QPushButton("Ruler")
+        self.btn_ruler_toggle.setCheckable(True)
+        self.btn_ruler_toggle.setChecked(False)
+        self.btn_ruler_toggle.setToolTip("Toggle ruler mode: click two points to measure distance")
+        self.btn_ruler_toggle.setStyleSheet(
+            "QPushButton { background-color: #313244; color: #cdd6f4; padding: 6px 10px; border-radius: 4px; font-size: 12px; } "
+            "QPushButton:checked { background-color: #f9e2af; color: #11111b; font-weight: bold; }"
+        )
+        self.btn_ruler_toggle.clicked.connect(self._toggle_ruler_mode)
+        ruler_btn_layout.addWidget(self.btn_ruler_toggle)
+
+        self.btn_ruler_show = QPushButton("👁")
+        self.btn_ruler_show.setCheckable(True)
+        self.btn_ruler_show.setChecked(True)
+        self.btn_ruler_show.setFixedSize(30, 30)
+        self.btn_ruler_show.setToolTip("Show/hide measurement lines")
+        self.btn_ruler_show.setStyleSheet(
+            "QPushButton { background-color: #313244; border-radius: 4px; font-size: 14px; } "
+            "QPushButton:checked { background-color: #89b4fa; color: #1e1e2e; }"
+        )
+        self.btn_ruler_show.clicked.connect(self._toggle_ruler_visibility)
+        ruler_btn_layout.addWidget(self.btn_ruler_show)
+
+        self.btn_ruler_clear = QPushButton("🗑")
+        self.btn_ruler_clear.setFixedSize(30, 30)
+        self.btn_ruler_clear.setToolTip("Clear measurements on current slices")
+        self.btn_ruler_clear.setStyleSheet("QPushButton { background-color: #313244; color: #cdd6f4; border-radius: 4px; font-size: 14px; }")
+        self.btn_ruler_clear.clicked.connect(self._clear_ruler_current)
+        ruler_btn_layout.addWidget(self.btn_ruler_clear)
+
+        grp.addLayout(ruler_btn_layout)
+        return grp
+
+    def _update_window_level(self):
+        window = self.sld_window.value()
+        level = self.sld_level.value()
+        if window < 1:
+            window = 1
+        
+        vmin = level - window / 2
+        vmax = level + window / 2
+        
+        self.lbl_wl.setText(f"W: {window}  |  L: {level}")
+        for img in self.imgs.values():
+            img.setLevels([vmin, vmax])
+
+    def _get_tissue_values(self, vol):
+        threshold = np.percentile(vol, 2.0)
+        mask = vol > threshold
+        if np.sum(mask) < 1000:
+            return vol.flatten()
+        return vol[mask]
+
+    def _auto_window_level(self):
+        if getattr(self, 't1_vol', None) is None: return
+        tissue_vals = self._get_tissue_values(self.t1_vol.volume)
+        if len(tissue_vals) == 0: return
+        
+        vmin = np.percentile(tissue_vals, 0.5)
+        vmax = np.percentile(tissue_vals, 99.5)
+        window = max(1, vmax - vmin)
+        level = (vmax + vmin) / 2
+        
+        v_min, v_max = tissue_vals.min(), tissue_vals.max()
+        self.sld_window.setMinimum(1)
+        self.sld_window.setMaximum(int((v_max - v_min) * 1.5) + 10)
+        self.sld_level.setMinimum(int(v_min))
+        self.sld_level.setMaximum(int(v_max))
+        
+        self.sld_window.blockSignals(True)
+        self.sld_level.blockSignals(True)
+        self.sld_window.setValue(int(window))
+        self.sld_level.setValue(int(level))
+        self.sld_window.blockSignals(False)
+        self.sld_level.blockSignals(False)
+        self._update_window_level()
+
+    def _apply_preset(self, auto=False):
+        if auto:
+            self.cmb_preset.setCurrentIndex(0)
+            
+        preset = self.cmb_preset.currentText()
+        if getattr(self, 't1_vol', None) is None: return
+        
+        tissue_vals = self._get_tissue_values(self.t1_vol.volume)
+        if len(tissue_vals) == 0: return
+        
+        base_min = np.percentile(tissue_vals, 1.0)
+        base_max = np.percentile(tissue_vals, 99.0)
+        base_range = base_max - base_min
+        
+        presets = {
+            "T1": (0.6, 0.4), "T2": (0.8, 0.5), "SWAN": (0.7, 0.45), "CT": (0.3, 0.6)
+        }
+        
+        v_min, v_max = tissue_vals.min(), tissue_vals.max()
+        self.sld_window.setMinimum(1)
+        self.sld_window.setMaximum(int((v_max - v_min) * 1.5) + 10)
+        self.sld_level.setMinimum(int(v_min))
+        self.sld_level.setMaximum(int(v_max))
+        
+        if preset in presets:
+            w_ratio, l_ratio = presets[preset]
+            window = max(1, base_range * w_ratio)
+            level = base_min + (base_range * l_ratio)
+            self.sld_window.blockSignals(True)
+            self.sld_level.blockSignals(True)
+            self.sld_window.setValue(int(window))
+            self.sld_level.setValue(int(level))
+            self.sld_window.blockSignals(False)
+            self.sld_level.blockSignals(False)
+            self._update_window_level()
+        else:
+            self._auto_window_level()
+
+    def _toggle_ruler_mode(self):
+        is_active = self.btn_ruler_toggle.isChecked()
+        for ruler in self.rulers.values():
+            ruler.set_active(is_active)
+            
+    def _toggle_ruler_visibility(self):
+        is_visible = self.btn_ruler_show.isChecked()
+        for ruler in self.rulers.values():
+            ruler.set_visible(is_visible)
+            
+    def _clear_ruler_current(self):
+        for ruler in self.rulers.values():
+            ruler.clear_measurements()
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Volume management
@@ -560,6 +772,7 @@ class ACPCWidget(QWidget):
                 self._set_landmark(key_name, new_voxel, update_world=False)
 
         self._render_all_t1()
+        self._apply_preset(auto=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Rendering
@@ -596,9 +809,12 @@ class ACPCWidget(QWidget):
             return
         vol = self.t1_vol.volume
         z, y, x = self.t1_vol.get_shape()
-        zi = self.slice_idx['axial']
-        yi = self.slice_idx['coronal']
-        xi = self.slice_idx['sagittal']
+        zi = max(0, min(self.slice_idx['axial'], z - 1))
+        yi = max(0, min(self.slice_idx['coronal'], y - 1))
+        xi = max(0, min(self.slice_idx['sagittal'], x - 1))
+        self.slice_idx['axial'] = zi
+        self.slice_idx['coronal'] = yi
+        self.slice_idx['sagittal'] = xi
 
         if key == 'axial':
             slc = np.flipud(vol[zi, :, :])
@@ -613,7 +829,11 @@ class ACPCWidget(QWidget):
             total, cur = x, xi
             s_col, s_row = self.t1_vol.spacing[1], self.t1_vol.spacing[0]
 
-        self.imgs[key].setImage(slc, autoLevels=True)
+        levels = self.imgs[key].getLevels()
+        if levels is None:
+            self.imgs[key].setImage(slc, autoLevels=True)
+        else:
+            self.imgs[key].setImage(slc, autoLevels=False, levels=levels)
         self.imgs[key].setTransform(pg.QtGui.QTransform().scale(s_col, s_row))
         self._hdrs[key].lbl_slice.setText(f"{cur + 1}/{total}")
 
@@ -625,7 +845,11 @@ class ACPCWidget(QWidget):
         z = self.t2_vol.get_shape()[0]
         self.slice_t2 = max(0, min(self.slice_t2, z - 1))
         slc = np.flipud(self.t2_vol.volume[self.slice_t2])
-        self.imgs['t2'].setImage(slc, autoLevels=True)
+        levels = self.imgs['t2'].getLevels()
+        if levels is None:
+            self.imgs['t2'].setImage(slc, autoLevels=True)
+        else:
+            self.imgs['t2'].setImage(slc, autoLevels=False, levels=levels)
         s_col, s_row = self.t2_vol.spacing[2], self.t2_vol.spacing[1]
         self.imgs['t2'].setTransform(pg.QtGui.QTransform().scale(s_col, s_row))
         self._hdrs['t2'].lbl_slice.setText(f"{self.slice_t2 + 1}/{z}")
@@ -819,7 +1043,7 @@ class ACPCWidget(QWidget):
         xi = self.slice_idx['sagittal']
 
         for entry in (self.ac, self.pc):
-            if entry is None:
+            if entry is None or 'voxel' not in entry:
                 continue
             vz, vy, vx = entry['voxel']
             vis_map = {
@@ -833,7 +1057,7 @@ class ACPCWidget(QWidget):
     # ── Projected AC-PC line ──────────────────────────────────────────────────
 
     def _refresh_proj_lines(self):
-        if self.ac is None or self.pc is None:
+        if self.ac is None or self.pc is None or 'voxel' not in self.ac or 'voxel' not in self.pc:
             for line in self._proj_lines.values():
                 line.setVisible(False)
             return

@@ -17,7 +17,7 @@ QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DBS Planning & Validation Workstation") # Dark background
+        self.setWindowTitle("HePlan") # Dark background
         self.setMinimumSize(1000, 700)
         self.resize(1200, 800)
 
@@ -59,6 +59,11 @@ class MainWindow(QMainWindow):
         # Tab 4: AC-PC Definition
         self.acpc_tab = ACPCWidget()
         self.tabs.addTab(self.acpc_tab, "AC-PC")
+
+        # Disable tabs until data is loaded
+        self.tabs.setTabEnabled(1, False)
+        self.tabs.setTabEnabled(2, False)
+        self.tabs.setTabEnabled(3, False)
 
         # Status bar
         self.status_bar = QStatusBar()
@@ -102,6 +107,10 @@ class MainWindow(QMainWindow):
         self.acpc_tab.add_volume(patient_data, vol_name)
 
     def on_patient_loaded(self, patient_data: PatientData):
+        # Enable tabs after first image load
+        self.tabs.setTabEnabled(1, True)
+        self.tabs.setTabEnabled(2, True)
+        self.tabs.setTabEnabled(3, True)
         pid = patient_data.metadata.get("PatientID", "Unknown")
         modality = patient_data.modality
         desc = patient_data.metadata.get("SeriesDescription", "Scan")

@@ -5,6 +5,7 @@ from PyQt5.QtWidgets import (QWidget, QGridLayout, QVBoxLayout, QHBoxLayout, QSl
                              QTableWidget, QTableWidgetItem, QAbstractItemView, QHeaderView, QComboBox, QProgressBar)
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from src.gui.components.ruler_tool import RulerTool
+from src.gui.components.collapsible_section import CollapsibleSection
 
 # Maintain existing pyqtgraph settings
 pg.setConfigOption('background', '#181825')
@@ -126,14 +127,37 @@ class RegistrationWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollBar:vertical {
+                border: none;
+                background: #1e1e2e;
+                width: 8px;
+                margin: 0px 0px 0px 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #45475a;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #585b70;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
+        scroll_layout.setSpacing(12)
         
-        grp_volumes = QGroupBox("📁 Loaded Volumes")
-        grp_volumes.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        vol_layout = QVBoxLayout(grp_volumes)
-        vol_layout.setContentsMargins(10, 10, 10, 10)
+        # Volumes Section
+        sec_volumes = CollapsibleSection("Loaded Volumes", expanded=True)
+        vol_layout = sec_volumes.content_layout
         vol_layout.setAlignment(Qt.AlignTop)
         
         self.tbl_volumes = QTableWidget()
@@ -145,8 +169,9 @@ class RegistrationWidget(QWidget):
         self.tbl_volumes.setShowGrid(True)
         self.tbl_volumes.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl_volumes.verticalHeader().setVisible(False)
+        self.tbl_volumes.setMinimumHeight(150)
         self.tbl_volumes.setStyleSheet("QTableWidget { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; } QHeaderView::section { background-color: #313244; color: #a6adc8; font-weight: bold; border: none; padding: 4px; }")
-        vol_layout.addWidget(self.tbl_volumes)
+        sec_volumes.addWidget(self.tbl_volumes)
         
         btn_layout = QHBoxLayout()
         self.btn_set_fixed = QPushButton("Set as Fixed")
@@ -159,24 +184,19 @@ class RegistrationWidget(QWidget):
         
         btn_layout.addWidget(self.btn_set_fixed)
         btn_layout.addWidget(self.btn_set_moving)
-        vol_layout.addLayout(btn_layout)
-        vol_layout.addStretch()
-        scroll_layout.addWidget(grp_volumes)
+        sec_volumes.addLayout(btn_layout)
+        scroll_layout.addWidget(sec_volumes)
 
-        grp_controls = QGroupBox("⚙️ Registration Controls")
-        grp_controls.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        ctrl_layout = QVBoxLayout(grp_controls)
-        ctrl_layout.setContentsMargins(10, 10, 10, 10)
-        ctrl_layout.setSpacing(8)
-        ctrl_layout.setAlignment(Qt.AlignTop)
-
+        # Registration Controls Section
+        sec_controls = CollapsibleSection("Registration Controls", expanded=False)
+        
         # Display Mode Selection
         self.cmb_display_mode = QComboBox()
         self.cmb_display_mode.addItems(["Full Anatomy Overlay", "Electrode Extraction"])
         self.cmb_display_mode.setStyleSheet("background-color: #313244; color: #cdd6f4; padding: 6px; border-radius: 4px;")
         self.cmb_display_mode.currentIndexChanged.connect(lambda: self._update_views())
-        ctrl_layout.addWidget(QLabel("Result Display Mode:"))
-        ctrl_layout.addWidget(self.cmb_display_mode)
+        sec_controls.addWidget(QLabel("Result Display Mode:"))
+        sec_controls.addWidget(self.cmb_display_mode)
         
         self.btn_run_reg = QPushButton("▶ Run Co-Registration")
         self.btn_run_reg.setStyleSheet("QPushButton { background-color: #89b4fa; color: #11111b; font-weight: bold; font-size: 13px; padding: 8px; border-radius: 6px; margin-top: 10px; }")
@@ -200,18 +220,15 @@ class RegistrationWidget(QWidget):
         prog_layout.addWidget(self.prog_bar)
         self.grp_progress.setVisible(False)
         
-        ctrl_layout.addWidget(self.btn_run_reg)
-        ctrl_layout.addWidget(self.grp_progress)
-        ctrl_layout.addWidget(self.btn_reset)
-        ctrl_layout.addStretch()
+        sec_controls.addWidget(self.btn_run_reg)
+        sec_controls.addWidget(self.grp_progress)
+        sec_controls.addWidget(self.btn_reset)
         
-        scroll_layout.addWidget(grp_controls)
-        
-        # --- Segmentation Overlay Controls ---
-        self.grp_seg_controls = QGroupBox("🧠 Segmentation Overlay")
-        self.grp_seg_controls.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
+        # Segmentation Overlay Controls
+        self.grp_seg_controls = QWidget()
+        self.grp_seg_controls.setVisible(True)
         seg_layout = QVBoxLayout(self.grp_seg_controls)
-        seg_layout.setAlignment(Qt.AlignTop)
+        seg_layout.setContentsMargins(0, 10, 0, 0)
         
         mask_controls_layout = QHBoxLayout()
         self.btn_toggle_mask = QPushButton("👁 Toggle")
@@ -228,22 +245,55 @@ class RegistrationWidget(QWidget):
         mask_controls_layout.addWidget(QLabel("Opacity:"))
         mask_controls_layout.addWidget(self.slider_mask_opacity)
         mask_controls_layout.addWidget(self.btn_toggle_mask)
+        
         seg_layout.addLayout(mask_controls_layout)
-        seg_layout.addStretch()
-        scroll_layout.addWidget(self.grp_seg_controls)
+        sec_controls.addWidget(self.grp_seg_controls)
+        scroll_layout.addWidget(sec_controls)
 
-        # --- MEASUREMENT TOOLS GROUP ---
-        grp_ruler = QGroupBox("📏 Measurement Tools")
-        grp_ruler.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        ruler_layout = QVBoxLayout(grp_ruler)
-        ruler_layout.setContentsMargins(10, 10, 10, 10)
-        ruler_layout.setSpacing(6)
-        ruler_layout.setAlignment(Qt.AlignTop)
+        # Tools Section
+        sec_tools = CollapsibleSection("Tools", expanded=False)
+        
+        # Window / Level
+        self.lbl_wl = QLabel("W: 0  |  L: 0")
+        self.lbl_wl.setStyleSheet("color: black; font-size: 11px; background-color: white; padding: 2px; border-radius: 4px; max-height: 20px;")
+        self.lbl_wl.setAlignment(Qt.AlignCenter)
+        sec_tools.addWidget(self.lbl_wl)
+        
+        self.sld_window = QSlider(Qt.Horizontal)
+        self.sld_window.setRange(1, 4000)
+        self.sld_level = QSlider(Qt.Horizontal)
+        self.sld_level.setRange(-2000, 4000)
+        
+        sec_tools.addWidget(QLabel("Window (Contrast):"))
+        sec_tools.addWidget(self.sld_window)
+        sec_tools.addWidget(QLabel("Level (Brightness):"))
+        sec_tools.addWidget(self.sld_level)
+        
+        self.sld_window.valueChanged.connect(self._update_window_level)
+        self.sld_level.valueChanged.connect(self._update_window_level)
+        
+        preset_layout = QHBoxLayout()
+        self.cmb_preset = QComboBox()
+        self.cmb_preset.addItems(["Auto", "T1", "T2", "SWAN", "CT"])
+        self.btn_apply_preset = QPushButton("Apply")
+        preset_layout.addWidget(self.cmb_preset)
+        preset_layout.addWidget(self.btn_apply_preset)
+        self.btn_apply_preset.clicked.connect(self._apply_preset)
+        sec_tools.addLayout(preset_layout)
+        
+        self.btn_reset_wl = QPushButton("🔄 Reset to Auto")
+        self.btn_reset_wl.clicked.connect(lambda: self._apply_preset(auto=True))
+        sec_tools.addWidget(self.btn_reset_wl)
 
+        # Measurement Tools
+        lbl_measure = QLabel("Measurement Tools:")
+        lbl_measure.setStyleSheet("color: #a6adc8; font-size: 11px; margin-top: 10px;")
+        sec_tools.addWidget(lbl_measure)
+        
         ruler_btn_layout = QHBoxLayout()
         ruler_btn_layout.setSpacing(8)
 
-        self.btn_ruler_toggle = QPushButton("📏 Ruler")
+        self.btn_ruler_toggle = QPushButton("Ruler")
         self.btn_ruler_toggle.setCheckable(True)
         self.btn_ruler_toggle.setChecked(False)
         self.btn_ruler_toggle.setToolTip("Toggle ruler mode: click two points to measure distance")
@@ -273,15 +323,23 @@ class RegistrationWidget(QWidget):
         self.btn_ruler_clear.clicked.connect(self._clear_ruler_current)
         ruler_btn_layout.addWidget(self.btn_ruler_clear)
 
-        ruler_layout.addLayout(ruler_btn_layout)
-        ruler_layout.addStretch()
-        scroll_layout.addWidget(grp_ruler)
-        
+        sec_tools.addLayout(ruler_btn_layout)
+        scroll_layout.addWidget(sec_tools)
+
         scroll_layout.addStretch()
-        
+
+        # Prevent input widgets from hijacking the scroll wheel
+        def ignore_wheel(event):
+            event.ignore()
+            
+        self.sld_window.wheelEvent = ignore_wheel
+        self.sld_level.wheelEvent = ignore_wheel
+        self.cmb_preset.wheelEvent = ignore_wheel
+        self.cmb_display_mode.wheelEvent = ignore_wheel
+        self.slider_mask_opacity.wheelEvent = ignore_wheel
+
         scroll.setWidget(scroll_content)
         sidebar_layout.addWidget(scroll)
-        
         main_layout.addWidget(sidebar, 1)
 
     def _create_plot_widget(self):
@@ -380,6 +438,7 @@ class RegistrationWidget(QWidget):
             self.rulers['result'].set_spacing(1.0, 1.0)
             
             self._update_views(auto_level_fixed=True)
+            self._apply_preset(auto=True)
 
     def _assign_moving(self):
         selected = self.tbl_volumes.selectionModel().selectedRows()
@@ -407,6 +466,90 @@ class RegistrationWidget(QWidget):
         self.view_fixed.autoRange()
         self.view_moving.autoRange()
         self.view_result.autoRange()
+
+    def _update_window_level(self):
+        window = self.sld_window.value()
+        level = self.sld_level.value()
+        if window < 1:
+            window = 1
+        
+        vmin = level - window / 2
+        vmax = level + window / 2
+        
+        self.lbl_wl.setText(f"W: {window}  |  L: {level}")
+        if hasattr(self, 'img_fixed'):
+            self.img_fixed.setLevels([vmin, vmax])
+        if hasattr(self, 'img_result_fixed'):
+            self.img_result_fixed.setLevels([vmin, vmax])
+
+    def _get_tissue_values(self, vol):
+        threshold = np.percentile(vol, 2.0)
+        mask = vol > threshold
+        if np.sum(mask) < 1000:
+            return vol.flatten()
+        return vol[mask]
+
+    def _auto_window_level(self):
+        if self.fixed_volume is None: return
+        tissue_vals = self._get_tissue_values(self.fixed_volume)
+        if len(tissue_vals) == 0: return
+        
+        vmin = np.percentile(tissue_vals, 0.5)
+        vmax = np.percentile(tissue_vals, 99.5)
+        window = max(1, vmax - vmin)
+        level = (vmax + vmin) / 2
+        
+        v_min, v_max = tissue_vals.min(), tissue_vals.max()
+        self.sld_window.setMinimum(1)
+        self.sld_window.setMaximum(int((v_max - v_min) * 1.5) + 10)
+        self.sld_level.setMinimum(int(v_min))
+        self.sld_level.setMaximum(int(v_max))
+        
+        self.sld_window.blockSignals(True)
+        self.sld_level.blockSignals(True)
+        self.sld_window.setValue(int(window))
+        self.sld_level.setValue(int(level))
+        self.sld_window.blockSignals(False)
+        self.sld_level.blockSignals(False)
+        self._update_window_level()
+
+    def _apply_preset(self, auto=False):
+        if auto:
+            self.cmb_preset.setCurrentIndex(0)
+            
+        preset = self.cmb_preset.currentText()
+        if self.fixed_volume is None: return
+        
+        tissue_vals = self._get_tissue_values(self.fixed_volume)
+        if len(tissue_vals) == 0: return
+        
+        base_min = np.percentile(tissue_vals, 1.0)
+        base_max = np.percentile(tissue_vals, 99.0)
+        base_range = base_max - base_min
+        
+        presets = {
+            "T1": (0.6, 0.4), "T2": (0.8, 0.5), "SWAN": (0.7, 0.45), "CT": (0.3, 0.6)
+        }
+        
+        v_min, v_max = tissue_vals.min(), tissue_vals.max()
+        self.sld_window.setMinimum(1)
+        self.sld_window.setMaximum(int((v_max - v_min) * 1.5) + 10)
+        self.sld_level.setMinimum(int(v_min))
+        self.sld_level.setMaximum(int(v_max))
+        
+        if preset in presets:
+            w_ratio, l_ratio = presets[preset]
+            window = max(1, base_range * w_ratio)
+            level = base_min + (base_range * l_ratio)
+            self.sld_window.blockSignals(True)
+            self.sld_level.blockSignals(True)
+            self.sld_window.setValue(int(window))
+            self.sld_level.setValue(int(level))
+            self.sld_window.blockSignals(False)
+            self.sld_level.blockSignals(False)
+            self._update_window_level()
+        else:
+            self._auto_window_level()
 
     # ── Ruler Tool Actions ──────────────────────────────────────
 

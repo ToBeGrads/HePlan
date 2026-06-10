@@ -12,6 +12,37 @@ pg.setConfigOption('background', '#181825')
 pg.setConfigOption('foreground', '#cdd6f4')
 pg.setConfigOption('imageAxisOrder', 'row-major')
 
+class CollapsibleSection(QWidget):
+    def __init__(self, title, expanded=False):
+        super().__init__()
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+
+        self.btn_toggle = QPushButton(f"{'▼' if expanded else '▶'}  {title}")
+        self.btn_toggle.setStyleSheet("QPushButton { text-align: left; padding: 10px; background-color: #1e1e2e; color: #cdd6f4; font-weight: bold; border-radius: 4px; border: 1px solid #45475a; margin-bottom: 2px; } QPushButton:hover { background-color: #313244; }")
+        self.btn_toggle.clicked.connect(self._toggle)
+
+        self.content_widget = QWidget()
+        self.content_layout = QVBoxLayout(self.content_widget)
+        self.content_layout.setContentsMargins(5, 5, 5, 10)
+        self.content_widget.setVisible(expanded)
+
+        self.layout.addWidget(self.btn_toggle)
+        self.layout.addWidget(self.content_widget)
+
+    def _toggle(self):
+        is_visible = not self.content_widget.isVisible()
+        self.content_widget.setVisible(is_visible)
+        title = self.btn_toggle.text().split("  ", 1)[1]
+        self.btn_toggle.setText(f"{'▼' if is_visible else '▶'}  {title}")
+
+    def addWidget(self, widget):
+        self.content_layout.addWidget(widget)
+        
+    def addLayout(self, layout):
+        self.content_layout.addLayout(layout)
+
 class MRIViewerWidget(QWidget):
     masks_updated = pyqtSignal(dict)
     
@@ -134,50 +165,151 @@ class MRIViewerWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollBar:vertical {
+                border: none;
+                background: #1e1e2e;
+                width: 8px;
+                margin: 0px 0px 0px 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #45475a;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #585b70;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
         
         scroll_content = QWidget()
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(12)
 
-        # Volumes Group
-        grp_volumes = QGroupBox("📁 Loaded Volumes")
-        grp_volumes.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        vol_layout = QVBoxLayout(grp_volumes)
-        vol_layout.setContentsMargins(10, 10, 10, 10)
+        # Volumes Section
+        sec_volumes = CollapsibleSection("Loaded Volumes", expanded=True)
+        vol_layout = sec_volumes.content_layout
         vol_layout.setAlignment(Qt.AlignTop)
         
         self.tbl_volumes = QTableWidget()
-        self.tbl_volumes.setColumnCount(4)
-        self.tbl_volumes.setHorizontalHeaderLabels(["Name", "Mod", "Shape", "Action"])
+        self.tbl_volumes.setColumnCount(3)
+        self.tbl_volumes.setHorizontalHeaderLabels(["Name", "Mod", "Shape"])
         self.tbl_volumes.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_volumes.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_volumes.setAlternatingRowColors(True)
         self.tbl_volumes.setShowGrid(True)
-        self.tbl_volumes.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_volumes.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl_volumes.verticalHeader().setVisible(False)
+        self.tbl_volumes.setMinimumHeight(150)
         self.tbl_volumes.setStyleSheet("QTableWidget { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; } QHeaderView::section { background-color: #313244; color: #a6adc8; font-weight: bold; border: none; padding: 4px; }")
-        vol_layout.addWidget(self.tbl_volumes)
+        sec_volumes.addWidget(self.tbl_volumes)
+        scroll_layout.addWidget(sec_volumes)
         
-        # Standalone Segmentation Button
-        self.btn_run_seg = QPushButton("▶ Run AI Segmentation")
-        self.btn_run_seg.setStyleSheet("QPushButton { background-color: #89b4fa; color: #11111b; font-weight: bold; font-size: 13px; padding: 8px; border-radius: 6px; margin-top: 5px; } QPushButton:disabled { background-color: #45475a; color: #a6adc8; }")
+        # AI Segmentation Section
+        sec_seg = CollapsibleSection("AI Segmentation", expanded=False)
+        self.btn_run_seg = QPushButton("Run AI Segmentation")
+        self.btn_run_seg.setStyleSheet("QPushButton { background-color: #89b4fa; color: #11111b; font-weight: bold; font-size: 13px; padding: 8px; border-radius: 4px; } QPushButton:disabled { background-color: #45475a; color: #a6adc8; }")
         self.btn_run_seg.setEnabled(False)
         self.btn_run_seg.clicked.connect(self._on_segmentation_clicked)
-        vol_layout.addWidget(self.btn_run_seg)
-        # --- DBS PLANNING (Inside Loaded Volumes) ---
+        sec_seg.addWidget(self.btn_run_seg)
+        
+        # Segmentation Overlay Tools
+        self.grp_seg_toolbox = QWidget()
+        self.grp_seg_toolbox.setVisible(False)
+        box_layout = QVBoxLayout(self.grp_seg_toolbox)
+        box_layout.setContentsMargins(0, 10, 0, 0)
+        box_layout.setSpacing(0)
+        
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(12)
+        
+        self.btn_toggle_mask = QPushButton("👁")
+        self.btn_toggle_mask.setToolTip("Toggle Mask Visibility")
+        self.btn_toggle_mask.setFixedSize(26, 26) 
+        self.btn_toggle_mask.setCheckable(True)
+        self.btn_toggle_mask.setChecked(True)
+        self.btn_toggle_mask.setStyleSheet("""
+            QPushButton { background-color: #313244; border-radius: 4px; font-size: 14px; }
+            QPushButton:checked { background-color: #89b4fa; color: #1e1e2e; }
+        """)
+        self.btn_toggle_mask.clicked.connect(self._toggle_mask_visibility)
+        controls_layout.addWidget(self.btn_toggle_mask)
+        
+        lbl_opacity = QLabel("Opacity:")
+        lbl_opacity.setStyleSheet("color: #a6adc8; font-size: 11px;")
+        controls_layout.addWidget(lbl_opacity)
+        
+        self.sld_opacity = QSlider(Qt.Horizontal)
+        self.sld_opacity.setRange(0, 255)
+        self.sld_opacity.setValue(self.current_opacity)
+        self.sld_opacity.valueChanged.connect(self._update_mask_opacity)
+        controls_layout.addWidget(self.sld_opacity)
+        
+        box_layout.addLayout(controls_layout)
+        sec_seg.addWidget(self.grp_seg_toolbox)
+
+        # --- PROGRESS INDICATOR ---
+        self.grp_progress = QGroupBox("⏳ AI Pipeline Execution")
+        self.grp_progress.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #f9e2af; border: 1px solid #f9e2af; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
+        self.grp_progress.setVisible(False)
+        prog_layout = QVBoxLayout(self.grp_progress)
+        prog_layout.setContentsMargins(10, 10, 10, 10)
+        prog_layout.setAlignment(Qt.AlignTop)
+        
+        self.lbl_progress_status = QLabel("Initializing pipeline updates...")
+        self.lbl_progress_status.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 11px;")
+        self.lbl_progress_status.setWordWrap(True)
+        prog_layout.addWidget(self.lbl_progress_status)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("QProgressBar { border: 1px solid #45475a; border-radius: 3px; background-color: #1e1e2e; height: 10px; } QProgressBar::chunk { background-color: #a6e3a1; border-radius: 3px; }")
+        prog_layout.addWidget(self.progress_bar)
+        
+        sec_seg.addWidget(self.grp_progress)
+
+        scroll_layout.addWidget(sec_seg)
+
+        # Electrode Positioning Section
+        sec_ep = CollapsibleSection("Electrode Positioning", expanded=False)
+        
+        # AC/PC Reference
+        acpc_row = QHBoxLayout()
+        self.btn_toggle_acpc = QPushButton("Show AC/PC Line")
+        self.btn_toggle_acpc.setCheckable(True)
+        self.btn_toggle_acpc.setStyleSheet("""
+            QPushButton { background-color: #313244; color: #cdd6f4; padding: 6px; border-radius: 4px; font-size: 12px; }
+            QPushButton:checked { background-color: #89b4fa; color: #1e1e2e; font-weight: bold; }
+        """)
+        self.btn_toggle_acpc.clicked.connect(self._update_acpc_overlay)
+        acpc_row.addWidget(self.btn_toggle_acpc)
+        
+        self.lbl_acpc_dist = QLabel("Distance: -")
+        self.lbl_acpc_dist.setStyleSheet("color: #a6adc8; font-size: 11px;")
+        acpc_row.addWidget(self.lbl_acpc_dist)
+        sec_ep.addLayout(acpc_row)
+
+        # DBS Planning
         self.wgt_bejjani_container = QWidget()
         bejjani_container_layout = QVBoxLayout(self.wgt_bejjani_container)
         bejjani_container_layout.setContentsMargins(0, 10, 0, 0)
         bejjani_container_layout.setSpacing(6)
-        self.wgt_bejjani_container.setEnabled(False) # Disabled until segmentation finishes
+        self.wgt_bejjani_container.setEnabled(False)
 
         bejjani_row = QHBoxLayout()
         bejjani_row.setSpacing(6)
 
-        self.btn_bejjani = QPushButton("🎯 Bejjani Target")
+        self.btn_bejjani = QPushButton("Bejjani Target")
         self.btn_bejjani.setToolTip("Auto-detect Bejjani line, RN borders, and STN target at specified lateral offset")
-        self.btn_bejjani.setStyleSheet("QPushButton { background-color: #a6e3a1; color: #11111b; font-weight: bold; font-size: 12px; padding: 8px; border-radius: 6px; } QPushButton:disabled { background-color: #45475a; color: #a6adc8; }")
+        self.btn_bejjani.setStyleSheet("QPushButton { background-color: #a6e3a1; color: #11111b; font-weight: bold; font-size: 12px; padding: 8px; border-radius: 4px; } QPushButton:disabled { background-color: #45475a; color: #a6adc8; }")
         self.btn_bejjani.clicked.connect(self._run_bejjani_targeting)
         
         self.spn_bejjani_offset = QDoubleSpinBox()
@@ -227,65 +359,32 @@ class MRIViewerWidget(QWidget):
         self.wgt_targets.setVisible(False)
         bejjani_container_layout.addWidget(self.wgt_targets)
 
-        self.btn_bejjani_clear = QPushButton("🗑 Clear Bejjani")
+        self.btn_bejjani_clear = QPushButton("Clear Bejjani")
         self.btn_bejjani_clear.setStyleSheet("QPushButton { background-color: #313244; color: #cdd6f4; padding: 5px; border-radius: 4px; font-size: 11px; } QPushButton:disabled { background-color: #1e1e2e; color: #6c7086; }")
         self.btn_bejjani_clear.clicked.connect(self._clear_bejjani)
         bejjani_container_layout.addWidget(self.btn_bejjani_clear)
 
-        vol_layout.addWidget(self.wgt_bejjani_container)
-        
-        # --- AC/PC REFERENCE (Inside Loaded Volumes) ---
-        self.grp_acpc = QGroupBox("📍 AC/PC Reference")
-        self.grp_acpc.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        self.grp_acpc.setMaximumHeight(85)
-        acpc_layout = QVBoxLayout(self.grp_acpc)
-        acpc_layout.setContentsMargins(10, 10, 10, 10)
-        acpc_layout.setSpacing(6)
-        
-        acpc_row = QHBoxLayout()
-        self.btn_toggle_acpc = QPushButton("👁 Show AC/PC Line")
-        self.btn_toggle_acpc.setCheckable(True)
-        self.btn_toggle_acpc.setStyleSheet("""
-            QPushButton { background-color: #313244; color: #cdd6f4; padding: 6px; border-radius: 4px; font-size: 12px; }
-            QPushButton:checked { background-color: #89b4fa; color: #1e1e2e; font-weight: bold; }
-        """)
-        self.btn_toggle_acpc.clicked.connect(self._update_acpc_overlay)
-        acpc_row.addWidget(self.btn_toggle_acpc)
-        
-        self.lbl_acpc_dist = QLabel("Distance: -")
-        self.lbl_acpc_dist.setStyleSheet("color: #a6adc8; font-size: 11px;")
-        acpc_row.addWidget(self.lbl_acpc_dist)
-        
-        acpc_layout.addLayout(acpc_row)
-        vol_layout.addWidget(self.grp_acpc)
+        sec_ep.addWidget(self.wgt_bejjani_container)
+        scroll_layout.addWidget(sec_ep)
 
-        vol_layout.addStretch()
+        # Tools Section
+        sec_tools = CollapsibleSection("Tools", expanded=False)
         
-        scroll_layout.addWidget(grp_volumes)
-
-        # Window/Level Group
-        grp_wl = QGroupBox("🎚 Window / Level")
-        grp_wl.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        grp_wl.setStyleSheet('max-height: 220px;')
-        wl_layout = QVBoxLayout(grp_wl)
-        wl_layout.setContentsMargins(10, 10, 10, 10)
-        wl_layout.setSpacing(6)
-        wl_layout.setAlignment(Qt.AlignTop)
-        
+        # Window / Level
         self.lbl_wl = QLabel("W: 0  |  L: 0")
         self.lbl_wl.setStyleSheet("color: black; font-size: 11px; background-color: white; padding: 2px; border-radius: 4px; max-height: 20px;")
         self.lbl_wl.setAlignment(Qt.AlignCenter)
-        wl_layout.addWidget(self.lbl_wl)
+        sec_tools.addWidget(self.lbl_wl)
         
         self.sld_window = QSlider(Qt.Horizontal)
         self.sld_window.setRange(1, 4000)
         self.sld_level = QSlider(Qt.Horizontal)
         self.sld_level.setRange(-2000, 4000)
         
-        wl_layout.addWidget(QLabel("Window (Contrast):"))
-        wl_layout.addWidget(self.sld_window)
-        wl_layout.addWidget(QLabel("Level (Brightness):"))
-        wl_layout.addWidget(self.sld_level)
+        sec_tools.addWidget(QLabel("Window (Contrast):"))
+        sec_tools.addWidget(self.sld_window)
+        sec_tools.addWidget(QLabel("Level (Brightness):"))
+        sec_tools.addWidget(self.sld_level)
         
         preset_layout = QHBoxLayout()
         self.cmb_preset = QComboBox()
@@ -293,91 +392,20 @@ class MRIViewerWidget(QWidget):
         self.btn_apply_preset = QPushButton("Apply")
         preset_layout.addWidget(self.cmb_preset)
         preset_layout.addWidget(self.btn_apply_preset)
-        wl_layout.addLayout(preset_layout)
+        sec_tools.addLayout(preset_layout)
         
         self.btn_reset_wl = QPushButton("🔄 Reset to Auto")
-        wl_layout.addWidget(self.btn_reset_wl)
-        wl_layout.addStretch()
-        scroll_layout.addWidget(grp_wl)
+        sec_tools.addWidget(self.btn_reset_wl)
 
-        # --- PROGRESS INDICATOR (Waiting Mechanism Overlay) ---
-        # --- PROGRESS INDICATOR (Waiting Mechanism Overlay) ---
-        self.grp_progress = QGroupBox("⏳ AI Pipeline Execution")
-        self.grp_progress.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #f9e2af; border: 1px solid #f9e2af; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        self.grp_progress.setVisible(False)
-        prog_layout = QVBoxLayout(self.grp_progress)
-        prog_layout.setContentsMargins(10, 10, 10, 10)
-        prog_layout.setAlignment(Qt.AlignTop)
+        # Measurement Tools
+        lbl_measure = QLabel("Measurement Tools:")
+        lbl_measure.setStyleSheet("color: #a6adc8; font-size: 11px; margin-top: 10px;")
+        sec_tools.addWidget(lbl_measure)
         
-        self.lbl_progress_status = QLabel("Initializing pipeline updates...")
-        self.lbl_progress_status.setStyleSheet("color: #cdd6f4; font-weight: bold; font-size: 11px;")
-        self.lbl_progress_status.setWordWrap(True)
-        prog_layout.addWidget(self.lbl_progress_status)
-        
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0) # Indeterminate
-        self.progress_bar.setTextVisible(False)
-        self.progress_bar.setStyleSheet("QProgressBar { border: 1px solid #45475a; border-radius: 3px; background-color: #1e1e2e; height: 10px; } QProgressBar::chunk { background-color: #a6e3a1; border-radius: 3px; }")
-        prog_layout.addWidget(self.progress_bar)
-        
-        scroll_layout.addWidget(self.grp_progress)
-
-        # --- NEW: COMPACT SEGMENTATION CONTROL TOOLBOX ---
-        self.grp_seg_toolbox = QGroupBox("🧠 Segmentation Overlay")
-        self.grp_seg_toolbox.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        self.grp_seg_toolbox.setVisible(False) # Hidden until mask finishes processing
-        self.grp_seg_toolbox.setMaximumHeight(80) # Restrict height to save space
-        
-        box_layout = QVBoxLayout(self.grp_seg_toolbox)
-        box_layout.setContentsMargins(8, 10, 8, 8)
-        box_layout.setSpacing(0)
-        box_layout.setAlignment(Qt.AlignTop)
-        
-        # Horizontal layout to pack controls side-by-side
-        controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(12)
-        
-        # 1. Toggle Button (Compact Square Icon)
-        self.btn_toggle_mask = QPushButton("👁")
-        self.btn_toggle_mask.setToolTip("Toggle Mask Visibility")
-        self.btn_toggle_mask.setFixedSize(26, 26) 
-        self.btn_toggle_mask.setCheckable(True)
-        self.btn_toggle_mask.setChecked(True)
-        self.btn_toggle_mask.setStyleSheet("""
-            QPushButton { background-color: #313244; border-radius: 4px; font-size: 14px; }
-            QPushButton:checked { background-color: #89b4fa; color: #1e1e2e; }
-        """)
-        self.btn_toggle_mask.clicked.connect(self._toggle_mask_visibility)
-        controls_layout.addWidget(self.btn_toggle_mask)
-        
-        # 2. Opacity Label
-        lbl_opacity = QLabel("Opacity:")
-        lbl_opacity.setStyleSheet("color: #a6adc8; font-size: 11px;")
-        controls_layout.addWidget(lbl_opacity)
-        
-        # 3. Opacity Slider
-        self.sld_opacity = QSlider(Qt.Horizontal)
-        self.sld_opacity.setRange(0, 255)
-        self.sld_opacity.setValue(self.current_opacity)
-        self.sld_opacity.valueChanged.connect(self._update_mask_opacity)
-        controls_layout.addWidget(self.sld_opacity)
-        
-        box_layout.addLayout(controls_layout)
-        box_layout.addStretch()
-        scroll_layout.addWidget(self.grp_seg_toolbox)
-
-        # --- MEASUREMENT TOOLS GROUP ---
-        grp_ruler = QGroupBox("📏 Measurement Tools")
-        grp_ruler.setStyleSheet("QGroupBox { font-weight: bold; font-size: 13px; color: #cdd6f4; border: 1px solid #45475a; border-radius: 6px; margin-top: 12px; padding-top: 18px; } QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; padding: 0 5px; }")
-        ruler_layout = QVBoxLayout(grp_ruler)
-        ruler_layout.setContentsMargins(10, 10, 10, 10)
-        ruler_layout.setSpacing(6)
-        ruler_layout.setAlignment(Qt.AlignTop)
-
         ruler_btn_layout = QHBoxLayout()
         ruler_btn_layout.setSpacing(8)
 
-        self.btn_ruler_toggle = QPushButton("📏 Ruler")
+        self.btn_ruler_toggle = QPushButton("Ruler")
         self.btn_ruler_toggle.setCheckable(True)
         self.btn_ruler_toggle.setChecked(False)
         self.btn_ruler_toggle.setToolTip("Toggle ruler mode: click two points to measure distance")
@@ -407,10 +435,24 @@ class MRIViewerWidget(QWidget):
         self.btn_ruler_clear.clicked.connect(self._clear_ruler_current)
         ruler_btn_layout.addWidget(self.btn_ruler_clear)
 
-        ruler_layout.addLayout(ruler_btn_layout)
-        ruler_layout.addStretch()
-        scroll_layout.addWidget(grp_ruler)
+        sec_tools.addLayout(ruler_btn_layout)
+        scroll_layout.addWidget(sec_tools)
+
+        # Progress UI moved to AI Segmentation section
+
         scroll_layout.addStretch()
+
+        # Prevent input widgets from hijacking the scroll wheel
+        def ignore_wheel(event):
+            event.ignore()
+            
+        self.sld_opacity.wheelEvent = ignore_wheel
+        self.sld_window.wheelEvent = ignore_wheel
+        self.sld_level.wheelEvent = ignore_wheel
+        self.cmb_preset.wheelEvent = ignore_wheel
+        self.spn_bejjani_offset.wheelEvent = ignore_wheel
+        for sp in (self.spn_l_lat, self.spn_l_ant, self.spn_l_sup, self.spn_r_lat, self.spn_r_ant, self.spn_r_sup):
+            sp.wheelEvent = ignore_wheel
 
         # ═╝ CRITICAL: RESTORE THESE LAYOUT ASSEMBLY LINES ╚═
         scroll.setWidget(scroll_content)
@@ -603,23 +645,35 @@ class MRIViewerWidget(QWidget):
         self.lbl_progress_status.setText(msg)
 
     def _toggle_maximize(self, view_key):
+        views_layout = self.layout().itemAt(0).widget().layout()
         views = ['axial', 'coronal', 'sagittal']
+        
+        for v in views:
+            views_layout.removeWidget(getattr(self, f'header_{v}'))
+            views_layout.removeWidget(getattr(self, f'view_{v}'))
+            getattr(self, f'header_{v}').setVisible(False)
+            getattr(self, f'view_{v}').setVisible(False)
+            
         if self.maximized_view == view_key:
             self.maximized_view = None
+            views_layout.addWidget(self.header_axial, 0, 0)
+            views_layout.addWidget(self.view_axial, 1, 0)
+            views_layout.addWidget(self.header_coronal, 0, 1)
+            views_layout.addWidget(self.view_coronal, 1, 1)
+            views_layout.addWidget(self.header_sagittal, 2, 0)
+            views_layout.addWidget(self.view_sagittal, 3, 0)
             for v in views:
                 getattr(self, f'header_{v}').setVisible(True)
                 getattr(self, f'view_{v}').setVisible(True)
             self._setup_grid_layout()
         else:
             self.maximized_view = view_key
-            for v in views:
-                if v == view_key:
-                    getattr(self, f'header_{v}').setVisible(True)
-                    getattr(self, f'view_{v}').setVisible(True)
-                else:
-                    getattr(self, f'header_{v}').setVisible(False)
-                    getattr(self, f'view_{v}').setVisible(False)
-            views_layout = self.layout().itemAt(0).widget().layout()
+            header = getattr(self, f'header_{view_key}')
+            view = getattr(self, f'view_{view_key}')
+            views_layout.addWidget(header, 0, 0, 1, 2)
+            views_layout.addWidget(view, 1, 0, 1, 2)
+            header.setVisible(True)
+            view.setVisible(True)
             views_layout.setColumnStretch(0, 1)
             views_layout.setColumnStretch(1, 0)
             views_layout.setRowStretch(1, 1)
@@ -651,7 +705,6 @@ class MRIViewerWidget(QWidget):
         self.tbl_volumes.setItem(row, 0, QTableWidgetItem(vol_name))
         self.tbl_volumes.setItem(row, 1, QTableWidgetItem(patient_data.modality))
         self.tbl_volumes.setItem(row, 2, QTableWidgetItem(str(patient_data.get_shape())))
-        self.tbl_volumes.setItem(row, 3, QTableWidgetItem("Ready"))
 
     def _on_volume_selected(self):
         row = self.tbl_volumes.currentRow()
@@ -764,7 +817,10 @@ class MRIViewerWidget(QWidget):
         # Save Bejjani state before switching
         if self.current_vol_name:
             for item in self.bejjani_items:
-                item.setVisible(False)
+                if hasattr(item, 'setVisible'):
+                    item.setVisible(False)
+                elif hasattr(item, 'set_visible'):
+                    item.set_visible(False)
             self.bejjani_cache[self.current_vol_name] = {
                 'items': self.bejjani_items,
                 'labels': self.bejjani_labels,
